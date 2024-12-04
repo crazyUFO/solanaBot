@@ -151,13 +151,11 @@ async def check_user_transactions(session, item,mint_address):
                 # 遍历数据
                 for i in range(len(arr)):
                     if arr[i]['trans_id'] == item['trans_id']:  # 对比
+                        logging.info(f"从用户活动中找到了 {item['trans_id']} hash签名")
                         # 取出当前数据和下一条数据
                         time1 = arr[i]
                         time2 = arr[i + 1] if i + 1 < len(arr) else None  # 防止越界
                         break  # 结束循环
-                #如果没有拿到
-                if not time1 and time2:
-                    return
                 time_diff = (time1['block_time'] - time2['block_time']) / 86400  # 将区块时间转换为天数
                 logging.info(f"间隔天数：{time_diff}")
                 if time_diff >= DAY_NUM:
