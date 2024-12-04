@@ -11,7 +11,7 @@ SINGLE_SOL = 0.5  # 单次买入阈值
 DAY_NUM = 3  # 间隔天数
 BLANCE = 100  # 账户余额阈值
 TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # Telegram 机器人的 API Token
-TELEGRAM_CHAT_ID = '@solanapostalert'  # 你的 Telegram 用户或群组 ID
+TELEGRAM_CHAT_ID = '-1002340584623'  # 你的 Telegram 用户或群组 ID
 
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
@@ -198,11 +198,15 @@ token:\n<code>{mint_address}</code>
 购买金额: {item['routers']['amount1'] / 1000000000} SOL
 钱包余额: {data['lamports'] / 1000000000} SOL
 
-查看钱包: <a href="https://solscan.io/account/{item['from_address']}">SOLSCAN</a> <a href="https://gmgn.ai/sol/address/{item['from_address']}">GMGN</a>
+查看钱包: <a href="https://solscan.io/account/{item['from_address']}"><b>SOLSCAN</b></a> <a href="https://gmgn.ai/sol/address/{item['from_address']}"><b>GMGN</b></a>
 
-查看K线: <a href="https://pump.fun/coin/{mint_address}">PUMP</a> <a href="https://gmgn.ai/sol/token/{mint_address}">GMGN</a>
+查看K线: <a href="https://pump.fun/coin/{mint_address}"><b>PUMP</b></a> <a href="https://gmgn.ai/sol/token/{mint_address}"><b>GMGN</b></a>
 
-交易哈希: <a href="https://solscan.io/tx/{item['trans_id']}">SOLSCAN</a>
+交易哈希: <a href="https://solscan.io/tx/{item['trans_id']}"><b>SOLSCAN</b></a>
+
+<a href="https://t.me/pepeboost_sol_bot?start=8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>PEPE一键买入</b></a>
+
+<a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
                         '''
                     send_telegram_notification(message)
         else:

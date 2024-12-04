@@ -25,13 +25,18 @@ token:\n<code>2hRMCsXi9WSeZQxGTKckqDuDVRkuNbTtSzXVNv62oHkZ</code>
 
 购买的老钱包:\n<code>2hRMCsXi9WSeZQxGTKckqDuDVRkuNbTtSzXVNv62oHkZ</code>
 
-购买金额: {0.8888} SOL
-钱包余额: {0.8888} SOL
-钱包代币余额总计: {99999} USDT
+购买金额: {0.5} SOL
+钱包余额: {1.077309826} SOL
+钱包代币余额总计: { 98716.7993344000800} USDT
 
-查看钱包: <a href="https://solscan.io/account/2hRMCsXi9WSeZQxGTKckqDuDVRkuNbTtSzXVNv62oHkZ">SOLSCAN</a> <a href="https://gmgn.ai/sol/address/2hRMCsXi9WSeZQxGTKckqDuDVRkuNbTtSzXVNv62oHkZ">GMGN</a>
+查看钱包: <a href="https://solscan.io/account/2hRMCsXi9WSeZQxGTKckqDuDVRkuNbTtSzXVNv62oHkZ"> <b>SOLSCAN</b></a> <a href="https://gmgn.ai/sol/address/2hRMCsXi9WSeZQxGTKckqDuDVRkuNbTtSzXVNv62oHkZ"><b>GMGN</b></a>
 
-查看K线: <a href="https://pump.fun/coin/CvdacfViE9wvhpQThcpt5iENiXrFZZ7z4VMQR7Xypump">PUMP</a> <a href="https://gmgn.ai/sol/token/VqNpWUdf_CvdacfViE9wvhpQThcpt5iENiXrFZZ7z4VMQR7Xypump">GMGN</a>
+查看K线: <a href="https://pump.fun/coin/CvdacfViE9wvhpQThcpt5iENiXrFZZ7z4VMQR7Xypump"><b>PUMP</b></a> <a href="https://gmgn.ai/sol/token/VqNpWUdf_CvdacfViE9wvhpQThcpt5iENiXrFZZ7z4VMQR7Xypump"><b>GMGN</b></a>
+
+<a href="https://t.me/pepeboost_sol_bot?start=8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>PEPE一键买入</b></a>
+
+<a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
+
 
 '''
 
