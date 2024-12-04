@@ -34,7 +34,7 @@ handler = TimedRotatingFileHandler(
     log_filename,
     when="h",  # 按小时轮换
     interval=12,  # 每12小时轮换一次
-    backupCount=14,  # 保留最近14个轮换的日志文件（即7天的日志）
+    backupCount=2,  # 保留最近14个轮换的日志文件（即7天的日志）
     encoding="utf-8"  # 指定文件编码为 utf-8，解决中文乱码问题
 )
 
