@@ -1,0 +1,12 @@
+# 忽略 Python 虚拟环境文件夹
+venv/
+
+# 忽略 Python 编译文件
+__pycache__/
+*.pyc
+
+# 忽略日志文件
+logs/
+
+# 忽略敏感配置文件
+config.json
