@@ -10,7 +10,7 @@ from logging.handlers import TimedRotatingFileHandler
 SINGLE_SOL = 0.5  # 单次买入阈值
 DAY_NUM = 3  # 间隔天数
 BLANCE = 100  # 账户余额阈值
-TELEGRAM_BOT_TOKEN = '7601466837:AAHd9g8QJik3kLtjyRDq-OuYD9CcCWKAJR4'  # Telegram 机器人的 API Token
+TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # Telegram 机器人的 API Token
 TELEGRAM_CHAT_ID = '@solanapostalert'  # 你的 Telegram 用户或群组 ID
 
 # API token 用于身份验证
@@ -103,7 +103,8 @@ async def process_message():
 async def start(session, mint_address):
     logging.info(f"请求代币活动数据: {mint_address}")
     async with session.get(
-        f"https://pro-api.solscan.io/v2.0/token/defi/activities?address={mint_address}&page=1&page_size=10&sort_by=block_time&sort_order=desc", 
+        f"https://pro-api.solscan.io/v2.0/token/defi/activities?address={mint_address}&source[]=6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&page=1&page_size=10&sort_by=block_time&sort_order=desc",
+        #f"https://pro-api.solscan.io/v2.0/token/defi/activities?address={mint_address}&page=1&page_size=10&sort_by=block_time&sort_order=desc", 
         headers=headers
     ) as response:
         if response.status == 200:
@@ -136,21 +137,32 @@ async def start(session, mint_address):
 async def check_user_transactions(session, item,mint_address):
     logging.info(f"请求用户交易记录: {item['from_address']}")
     async with session.get(
-        f"https://pro-api.solscan.io/v2.0/account/transactions?address={item['from_address']}&before={item['trans_id']}&limit=10", 
+        f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['from_address']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&page=1&page_size=40&sort_by=block_time&sort_order=desc",
+        # f"https://pro-api.solscan.io/v2.0/account/transactions?address={item['from_address']}&before={item['trans_id']}&limit=10", 
         headers=headers
     ) as response:
         if response.status == 200:
             response_data = await response.json()
             logging.info(f"获取用户交易记录成功: {response_data}")
-
-            if response_data.get('success') and len(response_data.get('data', [])) >= 1:
+            if response_data.get('success') and len(response_data.get('data', [])) >= 2:
                 arr = response_data['data']
                 time1 = arr[0]
-
-                time_diff = (item['block_time'] - time1['block_time']) / 86400  # 将区块时间转换为天数
+                time2 = arr[1]
+                # 遍历数据
+                for i in range(len(arr)):
+                    if arr[i]['trans_id'] == item['trans_id']:  # 对比
+                        # 取出当前数据和下一条数据
+                        time1 = arr[i]
+                        time2 = arr[i + 1] if i + 1 < len(arr) else None  # 防止越界
+                        break  # 结束循环
+                #如果没有拿到
+                if not time1 and time2:
+                    return
+                time_diff = (time1['block_time'] - time2['block_time']) / 86400  # 将区块时间转换为天数
+                logging.info(f"间隔天数：{time_diff}")
                 if time_diff >= DAY_NUM:
                     logging.info(f"---------检测到用户交易数据----------------")
-                    logging.info(f"{item['from_address']} 在过去 {DAY_NUM} 天内没有交易，突然进行了交易。")
+                    logging.info(f"{item['from_address']} 在过去 {DAY_NUM} 天内没有代币交易，突然进行了交易。")
                     logging.info("---------检测结束---------------")
                     
                     # 检查用户账户余额
