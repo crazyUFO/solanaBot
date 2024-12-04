@@ -92,46 +92,60 @@ async def process_message():
                 
                 
                 # 添加延迟，避免请求过于频繁
-                await asyncio.sleep(8)  # 延迟 3 秒
+                #await asyncio.sleep(8)  # 延迟 3 秒
                 logging.info(f"处理代币: {mint_address} 开始请求详情")
                 await start(session, mint_address)  # 直接开始处理请求，而不是等待20条数据
 
             except Exception as e:
                 logging.error(f"处理消息时出错: {e}")
 
-# 异步处理代币活动请求
 async def start(session, mint_address):
     logging.info(f"请求代币活动数据: {mint_address}")
-    async with session.get(
-        f"https://pro-api.solscan.io/v2.0/token/defi/activities?address={mint_address}&source[]=6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&page=1&page_size=10&sort_by=block_time&sort_order=desc",
-        #f"https://pro-api.solscan.io/v2.0/token/defi/activities?address={mint_address}&page=1&page_size=10&sort_by=block_time&sort_order=desc", 
-        headers=headers
-    ) as response:
-        if response.status == 200:
-            response_data = await response.json()
-            logging.info(f"获取代币活动数据成功: {response_data}")
+    retries = 0
+    max_retries = 20  # 最大重试次数
+    retry_interval = 0.5  # 每次请求之间的时间间隔（秒）
 
-            if response_data.get('success') and response_data.get('data'):
-                arr = response_data['data']
+    while retries < max_retries:
+        async with session.get(
+            f"https://pro-api.solscan.io/v2.0/token/defi/activities?address={mint_address}&source[]=6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&page=1&page_size=10&sort_by=block_time&sort_order=desc",
+            headers=headers
+        ) as response:
+            if response.status == 200:
+                response_data = await response.json()
+                logging.info(f"获取代币活动数据成功: {response_data}")
 
-                # 根据条件过滤数据并根据 'from_address' 去重，保留第一个出现的条目
-                seen_addresses = set()
-                defi_detail = []
+                # 检查数据是否符合条件
+                if response_data.get('success') and len(response_data.get('data'))>0:
+                    arr = response_data['data']
 
-                for item in arr:
-                    if item['routers']['token1'] == 'So11111111111111111111111111111111111111111' and (item['routers']['amount1'] / 1000000000) >= SINGLE_SOL:
-                        if item['from_address'] not in seen_addresses:
-                            defi_detail.append(item)
-                            seen_addresses.add(item['from_address'])
+                    # 根据条件过滤数据
+                    seen_addresses = set()
+                    defi_detail = []
 
-                if defi_detail:
-                    logging.info(f"符合条件的代币活动: {json.dumps(defi_detail)}")
+                    for item in arr:
+                        if item['routers']['token1'] == 'So11111111111111111111111111111111111111111' and (item['routers']['amount1'] / 1000000000) >= SINGLE_SOL:
+                            if item['from_address'] not in seen_addresses:
+                                defi_detail.append(item)
+                                seen_addresses.add(item['from_address'])
 
-                for item in defi_detail:
-                    await check_user_transactions(session, item,mint_address)
+                    if defi_detail:
+                        logging.info(f"符合条件的代币活动: {json.dumps(defi_detail)}")
+                        for item in defi_detail:
+                            await check_user_transactions(session, item, mint_address)
+                        return  # 数据符合条件时退出函数
 
-        else:
-            logging.error(f"请求代币活动数据失败: {response.status} - {await response.text()}")
+                # 数据不符合条件，记录并继续尝试
+                logging.info("未找到符合条件的数据，等待下一次请求...")
+
+            else:
+                logging.error(f"请求代币活动数据失败: {response.status} - {await response.text()}")
+
+        # 等待一段时间后重试
+        retries += 1
+        await asyncio.sleep(retry_interval)
+
+    # 如果超过最大重试次数，记录错误并退出
+    logging.warning(f"超过最大重试次数 ({max_retries})，未找到符合条件的数据: {mint_address}")
 
 # 异步请求用户交易记录和余额
 async def check_user_transactions(session, item,mint_address):
