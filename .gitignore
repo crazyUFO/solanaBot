@@ -10,3 +10,5 @@ logs/
 
 # 忽略敏感配置文件
 config.json
+
+*.log
