@@ -26,8 +26,8 @@ fi
 # 激活虚拟环境
 source "$VENV_DIR/bin/activate"
 
-# 运行 Python 脚本（在后台）
-nohup python "$PYTHON_SCRIPT" > "$SCRIPT_DIR/output.log" 2>&1 &
+# 运行 Python 脚本（在后台，无日志输出到文件）
+nohup python "$PYTHON_SCRIPT" &
 
 # 获取后台进程的 PID
 PID=$!
