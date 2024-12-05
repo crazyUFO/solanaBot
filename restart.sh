@@ -4,7 +4,7 @@
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # 指定虚拟环境路径
-VENV_DIR="$SCRIPT_DIR/venv"
+VENV_DIR="$SCRIPT_DIR/.venv"
 
 # 指定要运行的 Python 脚本路径
 PYTHON_SCRIPT="$SCRIPT_DIR/main.py"
