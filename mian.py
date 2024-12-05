@@ -6,13 +6,15 @@ import logging
 import requests  # 用于发送 Telegram API 请求
 import os
 from logging.handlers import TimedRotatingFileHandler
+from portfolivalueCalculator import PortfolioValueCalculator
 # 常量定义
 SINGLE_SOL = 0.5  # 单次买入阈值
 DAY_NUM = 3  # 间隔天数
 BLANCE = 100  # 账户余额阈值
+TOKEN_BALANCE = 10000 #单位是美刀
 TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # Telegram 机器人的 API Token
 TELEGRAM_CHAT_ID = '-1002340584623'  # 你的 Telegram 用户或群组 ID
-
+HELIUS_API_KEY = 'c3b599f9-2a66-494c-87da-1ac92d734bd8'#HELIUS API KEY
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
@@ -186,20 +188,14 @@ async def check_user_transactions(session, item,mint_address):
 # 异步请求用户的账户余额
 async def check_user_balance(session, item,mint_address):
     logging.info(f"请求账户详情: {item['from_address']}")
-    async with session.get(
-        f"https://pro-api.solscan.io/v2.0/account/detail?address={item['from_address']}", 
-        headers=headers
-    ) as response:
-        if response.status == 200:
-            response_data = await response.json()
-            logging.info(f"获取账户详情成功: {response_data}")
-
-            if response_data.get('success') and response_data.get('data'):
-                data = response_data['data']
-                if data['lamports'] / 1000000000 >= BLANCE:
-                    logging.info(f"账户 {item['from_address']} 余额超过 {BLANCE} SOL，符合通知条件！")
-                    
-                    # 发送通知到 Telegram
+    portfolio_calculator = PortfolioValueCalculator(
+    balances_api_key=HELIUS_API_KEY,
+    account_address=item['from_address']
+    )
+    try:
+        total_balance = portfolio_calculator.calculate_total_value()
+        sol = portfolio_calculator.get_sol()
+        if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
                     message = f'''
 <b>🐋🐋🐋🐋鲸鱼钱包🐋🐋🐋🐋</b>
 
@@ -207,8 +203,9 @@ token:\n<code>{mint_address}</code>
 
 购买的老钱包:\n<code>{item['from_address']}</code>
 
-购买金额: {item['routers']['amount1'] / 1000000000} SOL
-钱包余额: {data['lamports'] / 1000000000} SOL
+购买金额: {(item['routers']['amount1'] / 1000000000):.4f} SOL
+钱包余额: {sol} SOL
+tokens账户余额: {total_balance} $
 
 查看钱包: <a href="https://solscan.io/account/{item['from_address']}"><b>SOLSCAN</b></a> <a href="https://gmgn.ai/sol/address/{item['from_address']}"><b>GMGN</b></a>
 
@@ -222,7 +219,11 @@ token:\n<code>{mint_address}</code>
                         '''
                     send_telegram_notification(message)
         else:
-            logging.error(f"请求账户详情失败: {response.status} - {await response.text()}")
+                logging.info(f"tokens:{total_balance} sol:{sol}")
+    except Exception as e:
+            logging.error(f"获取tokens的余额出错{e}")
+        
+
 
 # 发送 Telegram 消息
 def send_telegram_notification(message):
