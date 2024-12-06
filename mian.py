@@ -17,7 +17,7 @@ DAY_NUM = 2  # 间隔天数
 BLANCE = 100  # 账户余额阈值
 TOKEN_BALANCE = 10000 #单位是美刀
 TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # Telegram 机器人的 API Token
-TELEGRAM_CHAT_ID = '-1002340584623'  # 你的 Telegram 用户或群组 ID
+TELEGRAM_CHAT_ID = '@laojingyu'  # 你的 Telegram 用户或群组 ID
 HELIUS_API_KEY = 'c3b599f9-2a66-494c-87da-1ac92d734bd8'#HELIUS API KEY
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
@@ -227,10 +227,9 @@ def check_user_transactions(session, item):
                     time2 = arr[i + 1] if i + 1 < len(arr) else None  # 防止越界
                     break  # 结束循环
             time_diff = (time1['block_time'] - time2['block_time']) / 86400  # 将区块时间转换为天数
-            logging.info(f"间隔天数：{time_diff}")
             if time_diff >= DAY_NUM:
                 logging.info(f"---------检测到用户交易数据----------------")
-                logging.info(f"{item['traderPublicKey']} 在过去 {DAY_NUM} 天内没有代币交易，突然进行了交易。")
+                logging.info(f"{item['traderPublicKey']} 在过去 {time_diff:.4f} 天内没有代币交易，突然进行了交易。")
                 logging.info("---------检测结束---------------")
                 
                 # 检查用户账户余额
@@ -241,11 +240,12 @@ def check_user_transactions(session, item):
 
 # 异步请求用户的账户余额
 def check_user_balance(session, item):
-    logging.info(f"请求账户详情: {item['traderPublicKey']}")
+    logging.info(f"请求用户余额: {item['traderPublicKey']}")
     portfolio_calculator = PortfolioValueCalculator(
     balances_api_key=HELIUS_API_KEY,
     account_address=item['traderPublicKey']
     )
+    logging.info(f"用户余额--{item['traderPublicKey']}--tokens:{total_balance} sol:{sol}")
     try:
         total_balance = portfolio_calculator.calculate_total_value()
         sol = portfolio_calculator.get_sol()
@@ -270,8 +270,6 @@ token详情:<a href="https://solscan.io/account/{item['traderPublicKey']}#defiac
 <a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
                         '''
                     send_telegram_notification(message)
-        else:
-                logging.info(f"tokens:{total_balance} sol:{sol}")
     except Exception as e:
             logging.error(f"获取tokens的余额出错{e}")
         
