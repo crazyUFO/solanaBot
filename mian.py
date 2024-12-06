@@ -318,10 +318,10 @@ def check_tokens_to_redis(token):
         response_data = response.json()
         data = response_data.get('data',{})
         market_cap = data.get('market_cap',0)
-        logging.info(f"交易的元数据--------{data}")
         if market_cap >= MIN_TOKEN_CAP and market_cap < MAX_TOKEN_CAP:
         # if data.get('address',""):
             redis_client.rpush("tokens", json.dumps(data))
+            logging.info(f"交易的元数据--------{data}")
             logging.info(f"{token} 已经压入redis监听池 市值: {market_cap}")
     else:
         logging.error(f"{token}获取元信息失败 : {response.json()}")
