@@ -115,7 +115,7 @@ async def cleanup_subscriptions():
         #将过期的地址查询市值 超过1W 小于 10W的加入redis
         for item in expired_addresses:
             executor.submit(check_tokens_to_redis, item)
-        await asyncio.sleep(10)  # 每30秒检查一次
+        await asyncio.sleep(30)  # 每30秒检查一次
 
 # 异步函数：处理 WebSocket
 async def websocket_handler():
@@ -319,8 +319,8 @@ def check_tokens_to_redis(token):
         data = response_data.get('data',{})
         market_cap = data.get('market_cap',0)
         logging.info(f"交易的元数据--------{data}")
-        # if market_cap >= MIN_TOKEN_CAP and market_cap < MAX_TOKEN_CAP:
-        if data.get('address',""):
+        if market_cap >= MIN_TOKEN_CAP and market_cap < MAX_TOKEN_CAP:
+        # if data.get('address',""):
             redis_client.rpush("tokens", json.dumps(data))
             logging.info(f"{token} 已经压入redis监听池 市值: {market_cap}")
     else:
