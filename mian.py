@@ -10,7 +10,7 @@ from portfolivalueCalculator import PortfolioValueCalculator
 from datetime import datetime, timedelta
 import concurrent.futures
 # 创建线程池执行器
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=15)
 # 常量定义
 SINGLE_SOL = 0.5  # 单次买入阈值
 DAY_NUM = 2  # 间隔天数
@@ -64,7 +64,7 @@ message_queue_2 = asyncio.Queue()  # 处理类型2的消息
 subscriptions = {}
 
 # 订阅过期时间设置为10分钟
-SUBSCRIPTION_EXPIRY = timedelta(seconds=120)
+SUBSCRIPTION_EXPIRY = timedelta(minutes=10)
 
 # 全局变量，用于存储 WebSocket 连接
 ws = None
@@ -236,8 +236,8 @@ def check_user_transactions(session, item):
                 # 检查用户账户余额
                 check_user_balance(session, item)
 
-        else:
-            logging.error(f"请求用户交易记录失败: {response.status_code} - { response.text()}")
+    else:
+        logging.error(f"请求用户交易记录失败: {response.status_code} - { response.text()}")
 
 # 异步请求用户的账户余额
 def check_user_balance(session, item):
