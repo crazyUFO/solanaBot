@@ -31,6 +31,7 @@ REDIS_DB = 0
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
+TOKENS_PATH = "tokens.txt"
 
 # 请求头
 headers = {
@@ -84,7 +85,8 @@ async def cleanup_subscriptions():
         logging.error(f"----数据处理队列{message_queue_2.qsize()} 条----")
         logging.error(f"----进程播报结束----")
         logging.info(f"目前订阅数量 {len(subscriptions)}")
-        executor.map(check_tokens_to_redis, subscriptions)
+        if len(subscriptions):
+            executor.submit(check_tokens_to_redis, subscriptions)
         await asyncio.sleep(3600)  # 每过1小时检查一次
 
 # 异步函数：处理 WebSocket
@@ -119,6 +121,8 @@ async def listen_to_redis():
     logging.info("开始监听 Redis 队列...")
     while True:
         try:
+            if not ws:
+                return
             # 从 Redis 队列中获取数据
             message = redis_client.lpop("tokens")
             if message:
@@ -128,6 +132,8 @@ async def listen_to_redis():
                 token = data.get('address');             
                 if token not in subscriptions:
                     subscriptions.append(token)
+                    # 写入文件
+                    file_handler(token)
                     logging.info(f"订阅新地址 {token} 已记录。")
                 payload = {
                     "method": "subscribeTokenTrade",
@@ -278,6 +284,7 @@ def check_tokens_to_redis(token):
         logging.info(f"正在检查token市值 {token}")
         if market_cap < MIN_TOKEN_CAP or market_cap > MAX_TOKEN_CAP:# 再范围之外移除监听
             del subscriptions[token]
+            file_handler(token)
             logging.info(f"{token} 市值为 {market_cap:.4f} 超出范围 正在移除监听")
             # 取消订阅
             if subscriptions and ws:
@@ -289,6 +296,23 @@ def check_tokens_to_redis(token):
 
     else:
         logging.error(f"{token}获取元信息失败 : {response.status_code}")
+
+
+def file_handler(token,action='ADD'):
+    if action == 'ADD':
+        with open(TOKENS_PATH, 'w') as file:
+            file.write(f"{token}\n")
+    else:
+        # 读取文件并删除特定项
+        with open(TOKENS_PATH, 'r') as file:
+            lines = file.readlines()
+        # 删除特定项
+        lines = [line for line in lines if line.strip() != token]
+        # 将修改后的内容写回文件
+        with open(TOKENS_PATH, 'w') as file:
+            # 如果需要添加新项，可以在此处添加
+            for line in lines:
+                file.write(line)
 
 
 # 主程序
