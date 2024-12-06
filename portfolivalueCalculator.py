@@ -4,7 +4,7 @@ import requests
 import time
 
 class PortfolioValueCalculator:
-    def __init__(self,account_address,balances_api_key):
+    def __init__(self,account_address="",balances_api_key=""):
         # 使用 API 密钥和账户地址初始化
         self.account_address = account_address
         self.balances_api_key = balances_api_key

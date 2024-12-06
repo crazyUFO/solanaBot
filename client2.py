@@ -1,3 +1,4 @@
+####2号脚本采用redis链接方法，从redis中遍历数据取出进行订阅操作
 import asyncio
 import websockets
 import json
@@ -9,16 +10,24 @@ from logging.handlers import TimedRotatingFileHandler
 from portfolivalueCalculator import PortfolioValueCalculator
 from datetime import datetime, timedelta
 import concurrent.futures
+import redis
 # 创建线程池执行器
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=15)
 # 常量定义
 SINGLE_SOL = 0.5  # 单次买入阈值
 DAY_NUM = 2  # 间隔天数
 BLANCE = 100  # 账户余额阈值
 TOKEN_BALANCE = 10000 #单位是美刀
+MIN_TOKEN_CAP = 10000 #市值最小 单位是美刀
+MAX_TOKEN_CAP = 100000 #市值最大 单位是美刀
 TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # Telegram 机器人的 API Token
-TELEGRAM_CHAT_ID = '-1002340584623'  # 你的 Telegram 用户或群组 ID
+TELEGRAM_CHAT_ID = '@laojingyu'  # 你的 Telegram 用户或群组 ID
 HELIUS_API_KEY = 'c3b599f9-2a66-494c-87da-1ac92d734bd8'#HELIUS API KEY
+# Redis 配置
+REDIS_HOST = "43.153.140.171"
+REDIS_PORT = 6379
+REDIS_PWD = "xiaosan@2020"
+REDIS_DB = 0
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
@@ -33,14 +42,14 @@ LOG_DIR = "logs"
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
-log_filename = os.path.join(LOG_DIR, "app.log")
+log_filename = os.path.join(LOG_DIR, "client2.log")
 
 # 创建一个TimedRotatingFileHandler，日志每12小时轮换一次，保留最近7天的日志
 handler = TimedRotatingFileHandler(
     log_filename,
     when="h",  # 按小时轮换
-    interval=12,  # 每12小时轮换一次
-    backupCount=2,  # 保留最近14个轮换的日志文件（即7天的日志）
+    interval=4,  # 每12小时轮换一次
+    backupCount=3,  # 保留最近14个轮换的日志文件（即7天的日志）
     encoding="utf-8"  # 指定文件编码为 utf-8，解决中文乱码问题
 )
 
@@ -55,49 +64,28 @@ logging.basicConfig(
 )
 
 logging.info("日志轮换配置完成")
-# 创建多个队列来处理不同类型的消息
-message_queue_1 = asyncio.Queue()  # 处理类型1的消息
-message_queue_2 = asyncio.Queue()  # 处理类型2的消息
+# 初始化 Redis
+redis_client = redis.StrictRedis(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    password=REDIS_PWD,
+    decode_responses=True
+)
+message_queue_1 = asyncio.Queue()  # 处理 WS队列监听
+message_queue_2 = asyncio.Queue()  # 处理 分发线程任务
+subscriptions = []# 存储未打满10W也不低于1W美金的token
+ws = None# WebSocket 连接
 
-
-# 存储mint_address和时间戳
-subscriptions = {}
-
-# 订阅过期时间设置为10分钟
-SUBSCRIPTION_EXPIRY = timedelta(seconds=60)
-
-# 全局变量，用于存储 WebSocket 连接
-ws = None
 
 async def cleanup_subscriptions():
-    while True:
-        current_time = datetime.utcnow()
-        expired_addresses = []
-        
-        # 遍历所有订阅，检查是否超过了过期时间
-        for mint_address, timestamp in subscriptions.items():
-            if current_time - timestamp > SUBSCRIPTION_EXPIRY:
-                expired_addresses.append(mint_address)
-
-        # 移除过期的订阅
-        for mint_address in expired_addresses:
-            del subscriptions[mint_address]
-            logging.info(f"订阅 {mint_address} 已过期，已取消订阅。")
-        
-        # 取消订阅
-        if subscriptions and ws:
-            payload = {
-                "method": "unsubscribeTokenTrade",
-                "keys": expired_addresses  
-            }
-            await ws.send(json.dumps(payload))
-        
+    while True:      
         logging.error(f"----目前进程播报----")
         logging.error(f"----创建监听队列{message_queue_1.qsize()} 条----")
         logging.error(f"----数据处理队列{message_queue_2.qsize()} 条----")
         logging.error(f"----进程播报结束----")
         logging.info(f"目前订阅数量 {len(subscriptions)}")
-        await asyncio.sleep(10)  # 每30秒检查一次
+        executor.map(check_tokens_to_redis, subscriptions)
+        await asyncio.sleep(3600)  # 每过1小时检查一次
 
 # 异步函数：处理 WebSocket
 async def websocket_handler():
@@ -105,23 +93,12 @@ async def websocket_handler():
     try:
         async with websockets.connect(WS_URL) as ws_instance:
             ws = ws_instance  # 这里将 WebSocket 连接存储到全局变量 ws
-            # 连接成功后，发送订阅消息一次
-            payload = {
-                "method": "subscribeNewToken",
-            }
-            await ws.send(json.dumps(payload))
-            logging.info("订阅请求已发送")
-
             # 持续接收消息并放入队列
             while True:
                 data = await ws.recv()  # 等待并接收新的消息
                 try:
                     message = json.loads(data)
-                    
-                    # 根据消息类型选择将消息放入哪个队列
-                    if "txType" in message and message['txType'] == 'create':
-                        await message_queue_1.put(data)  # 识别订单创建
-                    elif "txType" in message and message["txType"] == "buy":
+                    if "txType" in message and message["txType"] == "buy":
                         await message_queue_2.put(data)  # 买入单推送
                     else:
                         # logging.warning(f"无法识别的消息类型: {data}")
@@ -137,34 +114,31 @@ async def websocket_handler():
         logging.error(f"发生了意外错误: {e}. 正在重连...")
         await asyncio.sleep(5)  # 等待 5 秒后重新连接
 
-# 异步函数：从队列中获取消息并处理
-async def process_message():
-        while True:
-            # 从队列中获取消息并处理
-            data= await message_queue_1.get()
-            try:
-                big_data = json.loads(data)
-
-                if "mint" not in big_data:
-                    continue
-
-                mint_address = big_data["mint"]
-                
-                # Subscribing to trades on tokens
-            # 如果该 mint_address 不在订阅列表中，进行订阅，并记录时间戳
-                if mint_address not in subscriptions:
-                    subscriptions[mint_address] = datetime.utcnow()
-                    logging.info(f"订阅新地址 {mint_address} 时间戳已记录。")
-                    
+# 监听并处理队列数据
+async def listen_to_redis():
+    logging.info("开始监听 Redis 队列...")
+    while True:
+        try:
+            # 从 Redis 队列中获取数据
+            message = redis_client.lpop("tokens")
+            if message:
+                # 收到服务端的redis消息更新
+                logging.info(f"收到队列消息: {message}")
+                data = json.loads(message)
+                token = data.get('address');             
+                if token not in subscriptions:
+                    subscriptions.append(token)
+                    logging.info(f"订阅新地址 {token} 已记录。")
                 payload = {
                     "method": "subscribeTokenTrade",
-                    "keys": [mint_address]  # array of token CAs to watch
+                    "keys": [token]  # array of token CAs to watch
                 }
                 await ws.send(json.dumps(payload))
-                
-
-            except Exception as e:
-                logging.error(f"处理消息时出错1: {e}")
+            else:
+                # 如果队列为空，等待一会儿再检查
+                await asyncio.sleep(1)
+        except Exception as e:
+            logging.error(f"监听 Redis 队列时出错: {e}")
 
 #异步函数：从队列中获取交易者数据并处理
 async def transactions_message():
@@ -227,25 +201,25 @@ def check_user_transactions(session, item):
                     time2 = arr[i + 1] if i + 1 < len(arr) else None  # 防止越界
                     break  # 结束循环
             time_diff = (time1['block_time'] - time2['block_time']) / 86400  # 将区块时间转换为天数
-            logging.info(f"间隔天数：{time_diff}")
             if time_diff >= DAY_NUM:
                 logging.info(f"---------检测到用户交易数据----------------")
-                logging.info(f"{item['traderPublicKey']} 在过去 {DAY_NUM} 天内没有代币交易，突然进行了交易。")
+                logging.info(f"{item['traderPublicKey']} 在过去 {time_diff:.4f} 天内没有代币交易，突然进行了交易。")
                 logging.info("---------检测结束---------------")
                 
                 # 检查用户账户余额
                 check_user_balance(session, item)
 
-        else:
-            logging.error(f"请求用户交易记录失败: {response.status_code} - { response.text()}")
+    else:
+        logging.error(f"请求用户交易记录失败: {response.status_code} - { response.text()}")
 
 # 异步请求用户的账户余额
 def check_user_balance(session, item):
-    logging.info(f"请求账户详情: {item['traderPublicKey']}")
+    logging.info(f"请求用户余额: {item['traderPublicKey']}")
     portfolio_calculator = PortfolioValueCalculator(
     balances_api_key=HELIUS_API_KEY,
     account_address=item['traderPublicKey']
     )
+    logging.info(f"用户余额--{item['traderPublicKey']}--tokens:{total_balance} sol:{sol}")
     try:
         total_balance = portfolio_calculator.calculate_total_value()
         sol = portfolio_calculator.get_sol()
@@ -270,8 +244,6 @@ token详情:<a href="https://solscan.io/account/{item['traderPublicKey']}#defiac
 <a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
                         '''
                     send_telegram_notification(message)
-        else:
-                logging.info(f"tokens:{total_balance} sol:{sol}")
     except Exception as e:
             logging.error(f"获取tokens的余额出错{e}")
         
@@ -294,6 +266,30 @@ def send_telegram_notification(message):
     except Exception as e:
         logging.error(f"发送通知时出错: {e}")
 
+#请求代币元信息
+
+def check_tokens_to_redis(token):
+    url = f"https://pro-api.solscan.io/v2.0/token/meta?address={token}"
+    response = requests.get(url,headers=headers)
+    if response.status_code == 200:
+        response_data = response.json()
+        data = response_data.get('data',{})
+        market_cap = data.get('market_cap',0)
+        logging.info(f"正在检查token市值 {token}")
+        if market_cap < MIN_TOKEN_CAP or market_cap > MAX_TOKEN_CAP:# 再范围之外移除监听
+            del subscriptions[token]
+            logging.info(f"{token} 市值为 {market_cap:.4f} 超出范围 正在移除监听")
+            # 取消订阅
+            if subscriptions and ws:
+                payload = {
+                    "method": "unsubscribeTokenTrade",
+                    "keys": [token]  
+                }
+                ws.send(json.dumps(payload))
+
+    else:
+        logging.error(f"{token}获取元信息失败 : {response.status_code}")
+
 
 # 主程序
 async def main():
@@ -301,7 +297,7 @@ async def main():
     ws_task = asyncio.create_task(websocket_handler())
 
     # 启动处理队列的任务
-    process_task = asyncio.create_task(process_message())
+    redis_task = asyncio.create_task(listen_to_redis())
 
     # 启动交易监听队列任务
     transactions_task= asyncio.create_task(transactions_message())
@@ -310,7 +306,9 @@ async def main():
     cleanup_task = asyncio.create_task(cleanup_subscriptions())
 
     # 等待任务完成
-    await asyncio.gather(ws_task, process_task,transactions_task,cleanup_task)
+    await asyncio.gather(ws_task, redis_task,transactions_task,cleanup_task)
+    # await asyncio.gather(redis_task)
+
 
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':

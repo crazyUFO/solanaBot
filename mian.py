@@ -1,3 +1,4 @@
+###1号脚本 从WS获取数据，十分钟检查一次币种市值大于1W小于10W的踢出监听范围，在此范围内的压入2号服务器redis
 import asyncio
 import websockets
 import json
@@ -9,6 +10,7 @@ from logging.handlers import TimedRotatingFileHandler
 from portfolivalueCalculator import PortfolioValueCalculator
 from datetime import datetime, timedelta
 import concurrent.futures
+import redis
 # 创建线程池执行器
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=15)
 # 常量定义
@@ -16,9 +18,18 @@ SINGLE_SOL = 0.5  # 单次买入阈值
 DAY_NUM = 2  # 间隔天数
 BLANCE = 100  # 账户余额阈值
 TOKEN_BALANCE = 10000 #单位是美刀
+MIN_TOKEN_CAP = 10000 #市值最小 单位是美刀
+MAX_TOKEN_CAP = 100000 #市值最大 单位是美刀
 TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # Telegram 机器人的 API Token
 TELEGRAM_CHAT_ID = '@laojingyu'  # 你的 Telegram 用户或群组 ID
 HELIUS_API_KEY = 'c3b599f9-2a66-494c-87da-1ac92d734bd8'#HELIUS API KEY
+# Redis 配置
+REDIS_HOST = "43.153.140.171"
+REDIS_PORT = 6379
+REDIS_PWD = "xiaosan@2020"
+REDIS_DB = 0
+# 订阅过期时间设置为10分钟
+SUBSCRIPTION_EXPIRY = timedelta(seconds=10)
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
@@ -33,14 +44,14 @@ LOG_DIR = "logs"
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
-log_filename = os.path.join(LOG_DIR, "app.log")
+log_filename = os.path.join(LOG_DIR, "client.log")
 
 # 创建一个TimedRotatingFileHandler，日志每12小时轮换一次，保留最近7天的日志
 handler = TimedRotatingFileHandler(
     log_filename,
     when="h",  # 按小时轮换
-    interval=12,  # 每12小时轮换一次
-    backupCount=2,  # 保留最近14个轮换的日志文件（即7天的日志）
+    interval=4,  # 每12小时轮换一次
+    backupCount=3,  # 保留最近14个轮换的日志文件（即7天的日志）
     encoding="utf-8"  # 指定文件编码为 utf-8，解决中文乱码问题
 )
 
@@ -55,19 +66,21 @@ logging.basicConfig(
 )
 
 logging.info("日志轮换配置完成")
-# 创建多个队列来处理不同类型的消息
-message_queue_1 = asyncio.Queue()  # 处理类型1的消息
-message_queue_2 = asyncio.Queue()  # 处理类型2的消息
+# 初始化 Redis
+redis_client = redis.StrictRedis(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    password=REDIS_PWD,
+    decode_responses=True
+)
+message_queue_1 = asyncio.Queue()  # 处理 WS队列监听
+message_queue_2 = asyncio.Queue()  # 处理 分发线程任务
+subscriptions = {}# 存储mint_address和时间戳
+ws = None# WebSocket 连接
 
 
-# 存储mint_address和时间戳
-subscriptions = {}
 
-# 订阅过期时间设置为10分钟
-SUBSCRIPTION_EXPIRY = timedelta(minutes=10)
 
-# 全局变量，用于存储 WebSocket 连接
-ws = None
 
 async def cleanup_subscriptions():
     while True:
@@ -83,6 +96,7 @@ async def cleanup_subscriptions():
         for mint_address in expired_addresses:
             del subscriptions[mint_address]
             logging.info(f"订阅 {mint_address} 已过期，已取消订阅。")
+
         
         # 取消订阅
         if subscriptions and ws:
@@ -97,6 +111,10 @@ async def cleanup_subscriptions():
         logging.error(f"----数据处理队列{message_queue_2.qsize()} 条----")
         logging.error(f"----进程播报结束----")
         logging.info(f"目前订阅数量 {len(subscriptions)}")
+
+        #将过期的地址查询市值 超过1W 小于 10W的加入redis
+        for item in expired_addresses:
+            executor.submit(check_tokens_to_redis, item)
         await asyncio.sleep(10)  # 每30秒检查一次
 
 # 异步函数：处理 WebSocket
@@ -117,7 +135,6 @@ async def websocket_handler():
                 data = await ws.recv()  # 等待并接收新的消息
                 try:
                     message = json.loads(data)
-                    
                     # 根据消息类型选择将消息放入哪个队列
                     if "txType" in message and message['txType'] == 'create':
                         await message_queue_1.put(data)  # 识别订单创建
@@ -142,9 +159,9 @@ async def process_message():
         while True:
             # 从队列中获取消息并处理
             data= await message_queue_1.get()
+            print(data)
             try:
                 big_data = json.loads(data)
-
                 if "mint" not in big_data:
                     continue
 
@@ -291,6 +308,23 @@ def send_telegram_notification(message):
             logging.error(f"通知发送失败: {response.status_code}")
     except Exception as e:
         logging.error(f"发送通知时出错: {e}")
+
+#请求代币元信息
+
+def check_tokens_to_redis(token):
+    url = f"https://pro-api.solscan.io/v2.0/token/meta?address={token}"
+    response = requests.get(url,headers=headers)
+    if response.status_code == 200:
+        response_data = response.json()
+        data = response_data.get('data',{})
+        market_cap = data.get('market_cap',0)
+        logging.info(f"交易的元数据--------{data}")
+        # if market_cap >= MIN_TOKEN_CAP and market_cap < MAX_TOKEN_CAP:
+        if data.get('address',""):
+            redis_client.rpush("tokens", json.dumps(data))
+            logging.info(f"{token} 已经压入redis监听池 市值: {market_cap}")
+    else:
+        logging.error(f"{token}获取元信息失败 : {response.json()}")
 
 
 # 主程序
