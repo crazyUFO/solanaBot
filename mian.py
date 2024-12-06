@@ -115,7 +115,7 @@ async def cleanup_subscriptions():
         #将过期的地址查询市值 超过1W 小于 10W的加入redis
         for item in expired_addresses:
             executor.submit(check_tokens_to_redis, item)
-        await asyncio.sleep(30)  # 每30秒检查一次
+        await asyncio.sleep(60)  # 每60秒检查一次
 
 # 异步函数：处理 WebSocket
 async def websocket_handler():
