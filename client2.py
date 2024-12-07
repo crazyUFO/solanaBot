@@ -16,7 +16,7 @@ import time
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=15)
 # 常量定义
 SINGLE_SOL = 0.5  # 单次买入阈值
-DAY_NUM = 2  # 间隔天数
+DAY_NUM = 3  # 间隔天数
 BLANCE = 100  # 账户余额阈值
 TOKEN_BALANCE = 10000 #单位是美刀
 MIN_TOKEN_CAP = 10000 #市值最小 单位是美刀
