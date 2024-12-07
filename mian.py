@@ -29,7 +29,7 @@ REDIS_PORT = 6379
 REDIS_PWD = "xiaosan@2020"
 REDIS_DB = 0
 # 订阅过期时间设置为10分钟
-SUBSCRIPTION_EXPIRY = timedelta(seconds=10)
+SUBSCRIPTION_EXPIRY = timedelta(minutes=10)
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
