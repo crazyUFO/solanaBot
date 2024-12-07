@@ -14,10 +14,10 @@ import time
 # 创建线程池执行器
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=15)
 # 常量定义
-SINGLE_SOL = 0.3  # 单次买入阈值
-DAY_NUM = 0.1  # 间隔天数
-BLANCE = 1  # 账户余额阈值
-TOKEN_BALANCE = 100 #单位是美刀
+SINGLE_SOL = 0.5  # 单次买入阈值
+DAY_NUM = 2  # 间隔天数
+BLANCE = 100  # 账户余额阈值
+TOKEN_BALANCE = 10000 #单位是美刀
 MIN_TOKEN_CAP = 10000 #市值最小 单位是美刀
 MAX_TOKEN_CAP = 100000 #市值最大 单位是美刀
 TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # 线上 Telegram 机器人的 API Token
