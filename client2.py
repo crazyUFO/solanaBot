@@ -24,7 +24,7 @@ TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # Telegra
 TELEGRAM_CHAT_ID = '@laojingyu'  # 你的 Telegram 用户或群组 ID
 HELIUS_API_KEY = 'c3b599f9-2a66-494c-87da-1ac92d734bd8'#HELIUS API KEY
 # Redis 配置
-#REDIS_HOST = "43.153.140.171" 远程
+#REDIS_HOST = "43.153.140.171" #远程
 REDIS_HOST = "127.0.0.1" #本地
 REDIS_PORT = 6379
 REDIS_PWD = "xiaosan@2020"
@@ -77,7 +77,8 @@ message_queue_1 = asyncio.Queue()  # 处理 WS队列监听
 message_queue_2 = asyncio.Queue()  # 处理 分发线程任务
 subscriptions = []# 存储未打满10W也不低于1W美金的token
 ws = None# WebSocket 连接
-
+# 事件标记，表示 WebSocket 已连接
+ws_initialized_event = asyncio.Event()
 
 async def cleanup_subscriptions():
     while True:      
@@ -96,6 +97,8 @@ async def websocket_handler():
     try:
         async with websockets.connect(WS_URL) as ws_instance:
             ws = ws_instance  # 这里将 WebSocket 连接存储到全局变量 ws
+            logging.info("WebSocket 连接已建立！")
+            ws_initialized_event.set()  # 设置事件标记，表示连接已完成
             # 持续接收消息并放入队列
             while True:
                 data = await ws.recv()  # 等待并接收新的消息
@@ -121,29 +124,30 @@ async def websocket_handler():
 async def listen_to_redis():
     logging.info("开始监听 Redis 队列...")
     while True:
+        await ws_initialized_event.wait()
         try:
-            if not ws:
-                return
-            # 从 Redis 队列中获取数据
-            message = redis_client.lpop("tokens")
-            if message:
-                # 收到服务端的redis消息更新
-                logging.info(f"收到队列消息: {message}")
-                data = json.loads(message)
-                token = data.get('address');             
-                if token not in subscriptions:
-                    subscriptions.append(token)
-                    # 写入文件
-                    file_handler(token)
-                    logging.info(f"订阅新地址 {token} 已记录。")
-                payload = {
-                    "method": "subscribeTokenTrade",
-                    "keys": [token]  # array of token CAs to watch
-                }
-                await ws.send(json.dumps(payload))
-            else:
-                # 如果队列为空，等待一会儿再检查
-                await asyncio.sleep(1)
+            print(ws)
+            if ws is not None:
+                # 从 Redis 队列中获取数据
+                message = redis_client.lpop("tokens")
+                if message:
+                    # 收到服务端的redis消息更新
+                    logging.info(f"收到队列消息: {message}")
+                    data = json.loads(message)
+                    token = data.get('address');             
+                    if token not in subscriptions:
+                        subscriptions.append(token)
+                        # 写入文件
+                        file_handler(token)
+                        logging.info(f"订阅新地址 {token} 已记录。")
+                    payload = {
+                        "method": "subscribeTokenTrade",
+                        "keys": [token]  # array of token CAs to watch
+                    }
+                    await ws.send(json.dumps(payload))
+                else:
+                    # 如果队列为空，等待一会儿再检查
+                    await asyncio.sleep(1)
         except Exception as e:
             logging.error(f"监听 Redis 队列时出错: {e}")
 
@@ -297,9 +301,10 @@ def check_tokens_to_redis(token):
         logging.error(f"{token}获取元信息失败 : {response.status_code}")
 
 
-def file_handler(token,action='ADD'):
+def file_handler(token, action='ADD'):
     if action == 'ADD':
-        with open(TOKENS_PATH, 'w') as file:
+        # 使用 'a' 模式打开文件，追加 token
+        with open(TOKENS_PATH, 'a') as file:
             file.write(f"{token}\n")
     else:
         # 读取文件并删除特定项
@@ -309,9 +314,9 @@ def file_handler(token,action='ADD'):
         lines = [line for line in lines if line.strip() != token]
         # 将修改后的内容写回文件
         with open(TOKENS_PATH, 'w') as file:
-            # 如果需要添加新项，可以在此处添加
             for line in lines:
                 file.write(line)
+
 
 
 # 主程序
