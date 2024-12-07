@@ -166,7 +166,6 @@ async def transactions_message():
             logging.error(f"处理消息时出错2: {e}")
 
 def start(item):
-    logging.info(f"请求交易数据: {item['signature']}")#交易的tx_hash
     response=requests.get(f"https://pro-api.solscan.io/v2.0/transaction/actions?tx={item['signature']}",headers=headers)
     if response.status_code == 200:
         response_data =  response.json()
@@ -178,7 +177,7 @@ def start(item):
                     active_data  = value.get('data',{})
                     break
         item["amount"] = active_data.get("amount_1",0)/ (10 ** 9)
-        logging.info(f"用户 {item['traderPublicKey']} 获取tx_hash{item['signature']}行为数据成功: {len(sol_bal_change)} 条 交易金额-----:{item["amount"]}")
+        logging.info(f"用户 {item['traderPublicKey']} tx_hash{item['signature']}  交易金额-----:{item["amount"]}")
         if item["amount"] >= SINGLE_SOL:#条件一大于预设值
                 check_user_transactions(item)
     else:
@@ -197,10 +196,10 @@ def check_user_transactions(item):
             # 遍历数据
             for i in range(len(arr)):
                 if arr[i]['trans_id'] == item['signature']:  # 对比
-                    logging.info(f" 获取用户交易记录成功 {len(response_data)} 条 从用户活动第 {i} 条中找到了 {item['signature']} hash签名")
                     # 取出当前数据和下一条数据
                     time1 = arr[i]
                     time2 = arr[i + 1] if i + 1 < len(arr) else None  # 防止越界
+                    logging.info(f" 获取用户交易记录 {len(response_data)} 条 从用户活动第 {i} 条中找到了 {item['signature']} hash签名 下一条数据的tx_hash {time2[i+1]["trans_id"] if time2 else '没有下一条数据'}")
                     break  # 结束循环
             time_diff = (time1['block_time'] - time2['block_time']) / 86400  # 将区块时间转换为天数
             if time_diff >= DAY_NUM:
