@@ -2,7 +2,6 @@
 import asyncio
 import websockets
 import json
-import aiohttp
 import logging
 import requests  # 用于发送 Telegram API 请求
 import os
@@ -149,52 +148,48 @@ async def listen_to_redis():
 
 #异步函数：从队列中获取交易者数据并处理
 async def transactions_message():
-    async with aiohttp.ClientSession() as session:  # 创建一个会话，用于所有请求
-        while True:
-            # 从队列中获取消息并处理
-            data = await message_queue_2.get()
-            try:
-                big_data = json.loads(data)
+    while True:
+        # 从队列中获取消息并处理
+        data = await message_queue_2.get()
+        try:
+            big_data = json.loads(data)
 
-                if "traderPublicKey" not in big_data:
-                    continue
-                        
-                logging.info(f"处理交易: {big_data['signature']} 开始请求详情")
-                # 将任务提交给线程池进行处理
-                executor.submit(start, session, big_data)
-                #await start(session, big_data)  
-                
-            except Exception as e:
-                logging.error(f"处理消息时出错2: {e}")
+            if "traderPublicKey" not in big_data:
+                continue
+                    
+            #logging.info(f"处理交易: {big_data['signature']} 开始请求详情")
+            # 将任务提交给线程池进行处理
+            executor.submit(start, big_data)
+            #await start(session, big_data)  
+            
+        except Exception as e:
+            logging.error(f"处理消息时出错2: {e}")
 
-def start(session, item):
+def start(item):
     logging.info(f"请求交易数据: {item['signature']}")#交易的tx_hash
     response=requests.get(f"https://pro-api.solscan.io/v2.0/transaction/actions?tx={item['signature']}",headers=headers)
     if response.status_code == 200:
         response_data =  response.json()
         # 检查数据是否符合条件
         sol_bal_change = response_data.get('data',{}).get('activities',[])
-        logging.info(f"获取TX行为数据成功: {len(sol_bal_change)} 条")
         active_data = {}
         for value in sol_bal_change:
                 if(value['name'] == "PumpFunSwap" and value['program_id'] == '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'):
                     active_data  = value.get('data',{})
-                    break;
+                    break
         item["amount"] = active_data.get("amount_1",0)/ (10 ** 9)
-        logging.error(f'交易金额-----:{item["amount"]}')
+        logging.info(f"用户 {item['traderPublicKey']} 获取tx_hash{item['signature']}行为数据成功: {len(sol_bal_change)} 条 交易金额-----:{item["amount"]}")
         if item["amount"] >= SINGLE_SOL:#条件一大于预设值
-                check_user_transactions(session,item)
+                check_user_transactions(item)
     else:
         logging.error(f"请求交易数据数据失败: {response.status_code} - { response.text()}")
 
 # 异步请求用户交易记录和余额
-def check_user_transactions(session, item):
+def check_user_transactions(item):
     logging.info(f"请求用户交易记录: {item['traderPublicKey']}")
-    response= requests.get(f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&page=1&page_size=40&sort_by=block_time&sort_order=desc",headers=headers) 
+    response= requests.get(f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&page=1&page_size=100&sort_by=block_time&sort_order=desc",headers=headers) 
     if response.status_code == 200:
         response_data =  response.json()
-        #logging.info(f"获取用户交易记录成功: {response_data}")
-        logging.info(f"获取用户交易记录成功 {len(response_data)} 条")
         if response_data.get('success') and len(response_data.get('data', [])) >= 2:
             arr = response_data['data']
             time1 = arr[0]
@@ -202,7 +197,7 @@ def check_user_transactions(session, item):
             # 遍历数据
             for i in range(len(arr)):
                 if arr[i]['trans_id'] == item['signature']:  # 对比
-                    logging.info(f"从用户活动第 {i} 条中找到了 {item['signature']} hash签名")
+                    logging.info(f" 获取用户交易记录成功 {len(response_data)} 条 从用户活动第 {i} 条中找到了 {item['signature']} hash签名")
                     # 取出当前数据和下一条数据
                     time1 = arr[i]
                     time2 = arr[i + 1] if i + 1 < len(arr) else None  # 防止越界
@@ -214,20 +209,20 @@ def check_user_transactions(session, item):
                 logging.info("---------检测结束---------------")
                 
                 # 检查用户账户余额
-                check_user_balance(session, item)
+                check_user_balance(item)
 
     else:
         logging.error(f"请求用户交易记录失败: {response.status_code} - { response.text()}")
 
 # 异步请求用户的账户余额
-def check_user_balance(session, item):
-    logging.info(f"请求用户余额: {item['traderPublicKey']}")
-    portfolio_calculator = PortfolioValueCalculator(
-    balances_api_key=HELIUS_API_KEY,
-    account_address=item['traderPublicKey']
-    )
-    logging.info(f"用户余额--{item['traderPublicKey']}--tokens:{total_balance} sol:{sol}")
+def check_user_balance(item):
     try:
+        logging.info(f"请求用户余额: {item['traderPublicKey']}")
+        portfolio_calculator = PortfolioValueCalculator(
+            balances_api_key=HELIUS_API_KEY,
+            account_address=item['traderPublicKey']
+        )
+        logging.info(f"用户余额--{item['traderPublicKey']}--tokens:{total_balance} sol:{sol}")
         total_balance = portfolio_calculator.calculate_total_value()
         sol = portfolio_calculator.get_sol()
         if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
@@ -253,7 +248,6 @@ token详情:<a href="https://solscan.io/account/{item['traderPublicKey']}#defiac
                     send_telegram_notification(message)
     except Exception as e:
             logging.error(f"获取tokens的余额出错{e}")
-        
 
 
 # 发送 Telegram 消息
