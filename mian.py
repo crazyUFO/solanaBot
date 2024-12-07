@@ -37,6 +37,10 @@ SUBSCRIPTION_EXPIRY = timedelta(minutes=10)
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
 
+
+ADDRESS_EXPIRY = "expiry:"#redis存放已经请求过的 地址
+ADDRESS_SUCCESS = "success:"#存放播报的
+REDIS_EXPIRATION_TIME = 3 * 24 * 60 * 60 #redis 缓存请求过的地址，三天之内不在请求 
 # 请求头
 headers = {
     "token": TOKEN
@@ -195,10 +199,11 @@ async def transactions_message():
 
             if "traderPublicKey" not in big_data:
                 continue
-                    
-            #logging.info(f"处理交易: {big_data['signature']} 开始请求详情")
             # 将任务提交给线程池进行处理
-            executor.submit(start, big_data)
+            # 检查键是否存在
+            if redis_client.exists(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}") == 0:   #没有缓存就发出请求流程
+                redis_client.set(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}",big_data['traderPublicKey'],REDIS_EXPIRATION_TIME) #缓存已经请求过的地址
+                executor.submit(start, big_data)
             #await start(session, big_data)  
             
         except Exception as e:
@@ -242,9 +247,10 @@ def check_user_transactions(item):
                     break  # 结束循环
             if flag and time2!=None:#表示找到交易记录了 并且 time2 有值 判断他不是新的钱包
                 time_diff = (time1 - time2) / 86400  # 将区块时间转换为天数
+                logging.info(f"{item['traderPublicKey']} 查到订单{item['signature']}的时间 时间差 {time_diff} 交易活动数据长度{len(arr)}")
             else:
                 time_diff = (time2 - time1) / 86400
-                logging.info(f"对比使用了当前时间 {time_diff} 交易活动数据长度{len(arr)}")
+                logging.info(f"{item['traderPublicKey']} 对比使用了当前时间 时间差 {time_diff} 交易活动数据长度{len(arr)}")
             if time_diff >= DAY_NUM:
                 logging.info(f"{item['traderPublicKey']} 在过去 {time_diff:.4f} 天内没有代币交易，突然进行了交易。")        
                 # 检查用户账户余额
@@ -266,7 +272,8 @@ def check_user_balance(item):
         total_balance = portfolio_calculator.calculate_total_value()
         sol = portfolio_calculator.get_sol()
         logging.info(f"用户余额--{item['traderPublicKey']}--tokens:{total_balance} sol:{sol}")
-        if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
+        #if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
+        if total_balance >= TOKEN_BALANCE:
                     message = f'''
 <b>🐋🐋🐋🐋鲸鱼钱包🐋🐋🐋🐋</b>
 
@@ -287,6 +294,8 @@ token详情:<a href="https://solscan.io/account/{item['traderPublicKey']}#defiac
 <a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
                         '''
                     send_telegram_notification(message)
+                    #保存通知过的
+                    redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
     except Exception as e:
             logging.error(f"获取{item['traderPublicKey']}的余额出错{e}")
         

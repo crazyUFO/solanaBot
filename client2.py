@@ -1,5 +1,6 @@
 ####2号脚本采用redis链接方法，从redis中遍历数据取出进行订阅操作
 import asyncio
+import redis.client
 import websockets
 import json
 import logging
@@ -32,6 +33,13 @@ REDIS_DB = 0
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
+
+
+ADDRESS_EXPIRY = "expiry:"#redis存放已经请求过的 地址
+ADDRESS_SUCCESS = "success:"#存放播报的
+TOKEN_IN_SCOPE = "token:" #保存范围内以上的币种
+REDIS_EXPIRATION_TIME = 3 * 24 * 60 * 60 #redis 缓存请求过的地址，三天之内不在请求 
+
 TOKENS_PATH = "tokens.txt"
 
 # 请求头
@@ -87,8 +95,8 @@ async def cleanup_subscriptions():
         logging.error(f"----数据处理队列{message_queue_2.qsize()} 条----")
         logging.error(f"----进程播报结束----")
         logging.info(f"目前订阅数量 {len(subscriptions)}")
-        if len(subscriptions):
-            executor.submit(check_tokens_to_redis, subscriptions)
+        for item in subscriptions:
+            executor.submit(check_tokens_to_redis, item)
         await asyncio.sleep(3600)  # 每过1小时检查一次
 
 # 异步函数：处理 WebSocket
@@ -137,8 +145,8 @@ async def listen_to_redis():
                     token = data.get('address');             
                     if token not in subscriptions:
                         subscriptions.append(token)
-                        # 写入文件
-                        file_handler(token)
+                        # 存入redis
+                        redis_client.set(f"{TOKEN_IN_SCOPE}{token}",json.dumps(data))
                         logging.info(f"订阅新地址 {token} 已记录。")
                     payload = {
                         "method": "subscribeTokenTrade",
@@ -163,8 +171,9 @@ async def transactions_message():
                 continue
                     
             #logging.info(f"处理交易: {big_data['signature']} 开始请求详情")
-            # 将任务提交给线程池进行处理
-            executor.submit(start, big_data)
+            # 检查键是否存在
+            if redis_client.exists(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}") == 0:   #没有缓存就发出请求流程
+                redis_client.set(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}",big_data['traderPublicKey'],REDIS_EXPIRATION_TIME) #缓存已经请求过的地址
             #await start(session, big_data)  
             
         except Exception as e:
@@ -208,9 +217,10 @@ def check_user_transactions(item):
                     break  # 结束循环
             if flag and time2!=None:#表示找到交易记录了 并且 time2 有值 判断他不是新的钱包
                 time_diff = (time1 - time2) / 86400  # 将区块时间转换为天数
+                logging.info(f"{item['traderPublicKey']} 查到订单{item['signature']}的时间 时间差 {time_diff} 交易活动数据长度{len(arr)}")
             else:
                 time_diff = (time2 - time1) / 86400
-                logging.info(f"对比使用了当前时间 {time_diff} 交易活动数据长度{len(arr)}")
+                logging.info(f"{item['traderPublicKey']} 对比使用了当前时间 时间差 {time_diff} 交易活动数据长度{len(arr)}")
             if time_diff >= DAY_NUM:
                 logging.info(f"{item['traderPublicKey']} 在过去 {time_diff:.4f} 天内没有代币交易，突然进行了交易。")        
                 # 检查用户账户余额
@@ -233,7 +243,8 @@ def check_user_balance(item):
         total_balance = portfolio_calculator.calculate_total_value()
         sol = portfolio_calculator.get_sol()
         logging.info(f"用户余额--{item['traderPublicKey']}--tokens:{total_balance} sol:{sol}")
-        if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
+        #if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
+        if total_balance >= TOKEN_BALANCE:
                     message = f'''
 <b>🐋🐋🐋🐋鲸鱼钱包🐋🐋🐋🐋</b>
 
@@ -254,6 +265,8 @@ token详情:<a href="https://solscan.io/account/{item['traderPublicKey']}#defiac
 <a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
                         '''
                     send_telegram_notification(message)
+                    #保存通知过的
+                    redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
     except Exception as e:
             logging.error(f"获取{item['traderPublicKey']}的余额出错{e}")
 
@@ -287,7 +300,8 @@ def check_tokens_to_redis(token):
         logging.info(f"正在检查token市值 {token}")
         if market_cap < MIN_TOKEN_CAP or market_cap > MAX_TOKEN_CAP:# 再范围之外移除监听
             del subscriptions[token]
-            file_handler(token)
+            #从redis中移除范围以外的
+            redis_client.delete(f"{TOKEN_IN_SCOPE}{token}")
             logging.info(f"{token} 市值为 {market_cap:.4f} 超出范围 正在移除监听")
             # 取消订阅
             if subscriptions and ws:
@@ -299,23 +313,6 @@ def check_tokens_to_redis(token):
 
     else:
         logging.error(f"{token}获取元信息失败 : {response.status_code}")
-
-
-def file_handler(token, action='ADD'):
-    if action == 'ADD':
-        # 使用 'a' 模式打开文件，追加 token
-        with open(TOKENS_PATH, 'a') as file:
-            file.write(f"{token}\n")
-    else:
-        # 读取文件并删除特定项
-        with open(TOKENS_PATH, 'r') as file:
-            lines = file.readlines()
-        # 删除特定项
-        lines = [line for line in lines if line.strip() != token]
-        # 将修改后的内容写回文件
-        with open(TOKENS_PATH, 'w') as file:
-            for line in lines:
-                file.write(line)
 
 
 
