@@ -10,6 +10,7 @@ from portfolivalueCalculator import PortfolioValueCalculator
 from datetime import datetime, timedelta
 import concurrent.futures
 import redis
+import time
 # 创建线程池执行器
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=15)
 # 常量定义
@@ -177,7 +178,7 @@ def start(item):
                     active_data  = value.get('data',{})
                     break
         item["amount"] = active_data.get("amount_1",0)/ (10 ** 9)
-        logging.info(f"用户 {item['traderPublicKey']} tx_hash{item['signature']}  交易金额-----:{item["amount"]}")
+        logging.info(f"用户 {item['traderPublicKey']} tx_hash{item['signature']}  交易金额:{item['amount']}")
         if item["amount"] >= SINGLE_SOL:#条件一大于预设值
                 check_user_transactions(item)
     else:
@@ -185,33 +186,37 @@ def start(item):
 
 # 异步请求用户交易记录和余额
 def check_user_transactions(item):
-    logging.info(f"请求用户交易记录: {item['traderPublicKey']}")
-    response= requests.get(f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&page=1&page_size=100&sort_by=block_time&sort_order=desc",headers=headers) 
+    response= requests.get(f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&page=1&page_size=10&sort_by=block_time&sort_order=desc",headers=headers) 
     if response.status_code == 200:
         response_data =  response.json()
-        if response_data.get('success') and len(response_data.get('data', [])) >= 2:
+        if response_data.get('success') and len(response_data.get('data', [])) > 0:
             arr = response_data['data']
-            time1 = arr[0]
-            time2 = arr[1]
+            time1 = arr[0]['block_time'] #这个是最新的数据，如果交易记录中没拉到最新的交易数据，就以这个值 和当下时间作为对比
+            time2 = int(time.time())
+            flag = False
             # 遍历数据
             for i in range(len(arr)):
                 if arr[i]['trans_id'] == item['signature']:  # 对比
                     # 取出当前数据和下一条数据
-                    time1 = arr[i]
-                    time2 = arr[i + 1] if i + 1 < len(arr) else None  # 防止越界
-                    logging.info(f" 获取用户交易记录 {len(response_data)} 条 从用户活动第 {i} 条中找到了 {item['signature']} hash签名 下一条数据的tx_hash {time2[i+1]["trans_id"] if time2 else '没有下一条数据'}")
+                    flag = True
+                    time1 = arr[i]['block_time']
+                    time2 = arr[i + 1]['block_time'] if i + 1 < len(arr) else None  # 防止越界
                     break  # 结束循环
-            time_diff = (time1['block_time'] - time2['block_time']) / 86400  # 将区块时间转换为天数
+            if flag and time2!=None:#表示找到交易记录了 并且 time2 有值 判断他不是新的钱包
+                time_diff = (time1 - time2) / 86400  # 将区块时间转换为天数
+            else:
+                time_diff = (time2 - time1) / 86400
+                logging.info(f"对比使用了当前时间 {time_diff} 交易活动数据长度{len(arr)}")
             if time_diff >= DAY_NUM:
-                logging.info(f"---------检测到用户交易数据----------------")
-                logging.info(f"{item['traderPublicKey']} 在过去 {time_diff:.4f} 天内没有代币交易，突然进行了交易。")
-                logging.info("---------检测结束---------------")
-                
+                logging.info(f"{item['traderPublicKey']} 在过去 {time_diff:.4f} 天内没有代币交易，突然进行了交易。")        
                 # 检查用户账户余额
                 check_user_balance(item)
+        else:
+            logging.info(f"{item['traderPublicKey']}交易数据量过少是新钱包")
 
     else:
         logging.error(f"请求用户交易记录失败: {response.status_code} - { response.text()}")
+
 
 # 异步请求用户的账户余额
 def check_user_balance(item):
@@ -221,9 +226,9 @@ def check_user_balance(item):
             balances_api_key=HELIUS_API_KEY,
             account_address=item['traderPublicKey']
         )
-        logging.info(f"用户余额--{item['traderPublicKey']}--tokens:{total_balance} sol:{sol}")
         total_balance = portfolio_calculator.calculate_total_value()
         sol = portfolio_calculator.get_sol()
+        logging.info(f"用户余额--{item['traderPublicKey']}--tokens:{total_balance} sol:{sol}")
         if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
                     message = f'''
 <b>🐋🐋🐋🐋鲸鱼钱包🐋🐋🐋🐋</b>
@@ -232,9 +237,9 @@ token:\n<code>{item["mint"]}</code>
 
 购买的老钱包:\n<code>{item['traderPublicKey']}</code>
 
-购买金额:<b>{(item['amount']):.4f} SOL<b/>
-钱包余额:<b>{sol} SOL<b/>
-钱包代币余额总计:<b> {total_balance} USDT<b/>
+购买金额:<b>{(item['amount']):.4f} SOL</b>
+钱包余额:<b>{sol} SOL</b>
+钱包代币余额总计:<b> {total_balance} USDT</b>
 链上查看钱包: <a href="https://solscan.io/account/{item['traderPublicKey']}"><b>SOLSCAN</b></a> <a href="https://gmgn.ai/sol/address/{item['traderPublicKey']}"><b>GMGN</b></a>
 token详情:<a href="https://solscan.io/account/{item['traderPublicKey']}#defiactivities"><b>详情</b></a>
 
@@ -246,7 +251,7 @@ token详情:<a href="https://solscan.io/account/{item['traderPublicKey']}#defiac
                         '''
                     send_telegram_notification(message)
     except Exception as e:
-            logging.error(f"获取tokens的余额出错{e}")
+            logging.error(f"获取{item['traderPublicKey']}的余额出错{e}")
 
 
 # 发送 Telegram 消息
@@ -262,7 +267,7 @@ def send_telegram_notification(message):
         if response.status_code == 200:
             logging.info("通知发送成功！")
         else:
-            logging.error(f"通知发送失败: {response.status_code}")
+            logging.error(f"通知发送失败: {response.json()}")
     except Exception as e:
         logging.error(f"发送通知时出错: {e}")
 
