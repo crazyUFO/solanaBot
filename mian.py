@@ -32,9 +32,9 @@ REDIS_PORT = 6379
 REDIS_PWD = "xiaosan@2020"
 REDIS_DB = 0
 # 订阅过期时间设置为10分钟
-SUBSCRIPTION_EXPIRY = 10 * 6
+SUBSCRIPTION_EXPIRY = 10 * 60
 # 筛选地址活跃度为10分钟活跃
-TOKEN_EXPIRY = 10 * 6
+TOKEN_EXPIRY = 10 * 60
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
@@ -204,7 +204,7 @@ async def transactions_message():
             #加入最后活跃时间
             if big_data['mint'] in subscriptions:
                 subscriptions[big_data['mint']]['last_trade_time'] = time.time()
-                logging.info(f"代币 {big_data['mint']} 最后一次购买时间刷新 {subscriptions[big_data['mint']]['last_trade_time']}")
+                # logging.info(f"代币 {big_data['mint']} 最后一次购买时间刷新 {subscriptions[big_data['mint']]['last_trade_time']}")
             # 将任务提交给线程池进行处理
             # 检查键是否存在
             if redis_client.exists(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}") == 0:   #没有缓存就发出请求流程
