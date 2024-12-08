@@ -381,7 +381,7 @@ async def main():
     redis_task = asyncio.create_task(listen_to_redis())
 
     # 启动载入redis数据任务
-    redis_data_load = asyncio.create_task(load_redis_data())
+    #redis_data_load = asyncio.create_task(load_redis_data())
 
     # 启动交易监听队列任务
     transactions_task= asyncio.create_task(transactions_message())
@@ -391,7 +391,7 @@ async def main():
 
 
     # 等待任务完成
-    await asyncio.gather(ws_task,redis_data_load,redis_task,transactions_task,cleanup_task)
+    await asyncio.gather(ws_task,redis_task,transactions_task,cleanup_task)
 
 
 # 启动 WebSocket 处理程序
