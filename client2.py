@@ -108,21 +108,25 @@ async def cleanup_subscriptions():
         #将剩下的这些，再看看市值有没有超过设定值，超过也一起删了
         for token,last_trade_time in subscriptions.items():
             executor.submit(check_tokens_to_redis, token)
-
-        # 取消订阅
-        if subscriptions and ws:
-            payload = {
-                "method": "unsubscribeTokenTrade",
-                "keys": expired_addresses  
-            }
-        await ws.send(json.dumps(payload))
+        #取消订阅
+        if ws:
+        #将订阅的数组分片，以免数据过大 WS会断开
+            chunks = [subscriptions[i:i + 30] for i in range(0, len(subscriptions), 30)]
+            for chunk in chunks:
+                # 
+                payload = {
+                    "method": "unsubscribeTokenTrade",
+                    "keys": chunk  
+                }
+                await ws.send(json.dumps(payload))
+                await asyncio.sleep(2)
         logging.error(f"----目前进程播报----")
         logging.error(f"----创建监听队列{message_queue_1.qsize()} 条----")
         logging.error(f"----数据处理队列{message_queue_2.qsize()} 条----")
         logging.error(f"----进程播报结束----")
         logging.info(f"目前订阅数量 {len(subscriptions)}")
         logging.info(f"本次取消数量 {len(expired_addresses)}")
-        await asyncio.sleep(300)  # 每过1小时检查一次
+        await asyncio.sleep(60)  # 每过1小时检查一次
 
 async def websocket_handler():
     global ws
@@ -166,7 +170,6 @@ async def listen_to_redis():
                 message = redis_client.lpop("tokens")
                 if message:
                     # 收到服务端的redis消息更新
-                    logging.info(f"收到队列消息: {message}")
                     data = json.loads(message)
                     token = data.get('address');             
                     if token not in subscriptions:
