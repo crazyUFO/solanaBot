@@ -35,6 +35,7 @@ TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNz
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
 
 
+TOKEN_EXPIRY = 10 * 6 # 筛选地址活跃度为10分钟活跃
 ADDRESS_EXPIRY = "expiry:"#redis存放已经请求过的 地址
 ADDRESS_SUCCESS = "success:"#存放播报的
 TOKEN_IN_SCOPE = "token:" #保存范围内以上的币种
@@ -83,50 +84,76 @@ redis_client = redis.StrictRedis(
 )
 message_queue_1 = asyncio.Queue()  # 处理 WS队列监听
 message_queue_2 = asyncio.Queue()  # 处理 分发线程任务
-subscriptions = []# 存储未打满10W也不低于1W美金的token
+subscriptions = {}# 存储未打满10W也不低于1W美金的token
 ws = None# WebSocket 连接
 # 事件标记，表示 WebSocket 已连接
 ws_initialized_event = asyncio.Event()
 
 async def cleanup_subscriptions():
-    while True:      
+    while True:
+        await ws_initialized_event.wait()
+        current_time = time.time()
+        expired_addresses = []
+        # 遍历所有订阅，最后一次交易时间超时
+        for mint_address, last_trade_time in subscriptions.items():
+            if current_time - last_trade_time >= TOKEN_EXPIRY:
+                expired_addresses.append(mint_address)
+        
+        # 移除过期的订阅
+        for mint_address in expired_addresses:
+            redis_client.delete(redis_client.delete(f"{TOKEN_IN_SCOPE}{token}"))
+            del subscriptions[mint_address]
+            logging.info(f"订阅 {mint_address} 活跃度低下 已取消订阅")
+        
+        #将剩下的这些，再看看市值有没有超过设定值，超过也一起删了
+        for token,last_trade_time in subscriptions.items():
+            executor.submit(check_tokens_to_redis, token)
+
+        # 取消订阅
+        if subscriptions and ws:
+            payload = {
+                "method": "unsubscribeTokenTrade",
+                "keys": expired_addresses  
+            }
+        await ws.send(json.dumps(payload))
         logging.error(f"----目前进程播报----")
         logging.error(f"----创建监听队列{message_queue_1.qsize()} 条----")
         logging.error(f"----数据处理队列{message_queue_2.qsize()} 条----")
         logging.error(f"----进程播报结束----")
         logging.info(f"目前订阅数量 {len(subscriptions)}")
-        for item in subscriptions:
-            executor.submit(check_tokens_to_redis, item)
-        await asyncio.sleep(3600)  # 每过1小时检查一次
+        logging.info(f"本次取消数量 {len(expired_addresses)}")
+        await asyncio.sleep(300)  # 每过1小时检查一次
 
-# 异步函数：处理 WebSocket
 async def websocket_handler():
     global ws
-    try:
-        async with websockets.connect(WS_URL) as ws_instance:
-            ws = ws_instance  # 这里将 WebSocket 连接存储到全局变量 ws
-            logging.info("WebSocket 连接已建立！")
-            ws_initialized_event.set()  # 设置事件标记，表示连接已完成
-            # 持续接收消息并放入队列
-            while True:
-                data = await ws.recv()  # 等待并接收新的消息
-                try:
-                    message = json.loads(data)
-                    if "txType" in message and message["txType"] == "buy":
-                        await message_queue_2.put(data)  # 买入单推送
-                    else:
-                        # logging.warning(f"无法识别的消息类型: {data}")
-                        pass
-                
-                except json.JSONDecodeError:
+    while True:
+        try:
+            logging.info("正在尝试建立 WebSocket 连接...")
+            async with websockets.connect(WS_URL) as ws_instance:
+                ws = ws_instance  # 存储 WebSocket 连接实例
+                logging.info("WebSocket 连接已建立！")
+                ws_initialized_event.set()  # 标记 WebSocket 连接已完成
+
+                # 持续接收消息并处理
+                while True:
+                    data = await ws.recv()  # 等待并接收新的消息
+                    try:
+                        message = json.loads(data)
+                        if "txType" in message and message["txType"] == "buy":
+                            await message_queue_2.put(data)  # 将买入单推送到队列
+                        else:
+                            pass  # 处理其他消息类型（可根据需要添加）
+
+                    except json.JSONDecodeError:
                         logging.error(f"消息解析失败: {data}")
 
-    except websockets.exceptions.ConnectionClosedError as e:
-        logging.error(f"WebSocket 连接意外关闭: {e}. 正在重连...")
-        await asyncio.sleep(5)  # 等待 5 秒后重新连接
-    except Exception as e:
-        logging.error(f"发生了意外错误: {e}. 正在重连...")
-        await asyncio.sleep(5)  # 等待 5 秒后重新连接
+        except (websockets.exceptions.ConnectionClosedError, ConnectionRefusedError) as e:
+            logging.error(f"WebSocket 连接失败: {e}. 正在重连...")
+            await asyncio.sleep(5)  # 等待 5 秒后重新连接
+
+        except Exception as e:
+            logging.error(f"发生了意外错误: {e}. 正在重连...")
+            await asyncio.sleep(5)  # 等待 5 秒后重新连接
 
 # 监听并处理队列数据
 async def listen_to_redis():
@@ -134,7 +161,6 @@ async def listen_to_redis():
     while True:
         await ws_initialized_event.wait()
         try:
-            print(ws)
             if ws is not None:
                 # 从 Redis 队列中获取数据
                 message = redis_client.lpop("tokens")
@@ -144,20 +170,45 @@ async def listen_to_redis():
                     data = json.loads(message)
                     token = data.get('address');             
                     if token not in subscriptions:
-                        subscriptions.append(token)
+                        subscriptions[token] = time.time()
                         # 存入redis
                         redis_client.set(f"{TOKEN_IN_SCOPE}{token}",json.dumps(data))
                         logging.info(f"订阅新地址 {token} 已记录。")
-                    payload = {
-                        "method": "subscribeTokenTrade",
-                        "keys": [token]  # array of token CAs to watch
-                    }
-                    await ws.send(json.dumps(payload))
+                        payload = {
+                            "method": "subscribeTokenTrade",
+                            "keys": [token]  # array of token CAs to watch
+                        }
+                        await ws.send(json.dumps(payload))
                 else:
                     # 如果队列为空，等待一会儿再检查
                     await asyncio.sleep(1)
         except Exception as e:
             logging.error(f"监听 Redis 队列时出错: {e}")
+#脚本启动加载redis中
+async def load_redis_data():
+    logging.info("载入redis已经记录的数据")
+    # SCAN 命令获取匹配的键
+    cursor = 0
+    while True:
+        await ws_initialized_event.wait()#等待链接
+        cursor, keys = redis_client.scan(cursor, match=TOKEN_IN_SCOPE+"*")
+        tokens = []
+        if len(keys)>0:
+            for token in keys:
+                str = token.replace("token:","")
+                subscriptions[str] = time.time()
+                logging.info(f"订阅新地址 {str} 已记录。")
+                tokens.append(str)
+            payload = {
+                "method": "subscribeTokenTrade",
+                "keys": tokens  # array of token CAs to watch
+            }
+            await ws.send(json.dumps(payload))
+            logging.info(f"从redis中拉扫描到未订阅数据,现在订阅 {tokens}")
+            tokens=[]
+        if cursor == 0:
+            break  # 游标为0表示扫描结束
+
 
 #异步函数：从队列中获取交易者数据并处理
 async def transactions_message():
@@ -166,11 +217,10 @@ async def transactions_message():
         data = await message_queue_2.get()
         try:
             big_data = json.loads(data)
-
-            if "traderPublicKey" not in big_data:
-                continue
-                    
-            #logging.info(f"处理交易: {big_data['signature']} 开始请求详情")
+            #加入最后活跃时间
+            if big_data['mint'] in subscriptions:
+                subscriptions[big_data['mint']] = time.time()
+                logging.info(f"代币 {big_data['mint']} 最后一次购买时间刷新 {subscriptions[big_data['mint']]}")
             # 检查键是否存在
             if redis_client.exists(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}") == 0:   #没有缓存就发出请求流程
                 redis_client.set(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}",big_data['traderPublicKey'],REDIS_EXPIRATION_TIME) #缓存已经请求过的地址
@@ -297,23 +347,26 @@ def check_tokens_to_redis(token):
         response_data = response.json()
         data = response_data.get('data',{})
         market_cap = data.get('market_cap',0)
-        logging.info(f"正在检查token市值 {token}")
-        if market_cap < MIN_TOKEN_CAP or market_cap > MAX_TOKEN_CAP:# 再范围之外移除监听
-            del subscriptions[token]
-            #从redis中移除范围以外的
-            redis_client.delete(f"{TOKEN_IN_SCOPE}{token}")
-            logging.info(f"{token} 市值为 {market_cap:.4f} 超出范围 正在移除监听")
-            # 取消订阅
-            if subscriptions and ws:
-                payload = {
-                    "method": "unsubscribeTokenTrade",
-                    "keys": [token]  
-                }
-                ws.send(json.dumps(payload))
+        logging.info(f"token {token} market_cap {market_cap}")
+        try:
+            if market_cap > MAX_TOKEN_CAP:# 再范围之外移除监听
+                if token in subscriptions:
+                    del subscriptions[token]
+                #从redis中移除范围以外的
+                redis_client.delete(f"{TOKEN_IN_SCOPE}{token}")
+                logging.info(f"token {token} market_cap {market_cap:.4f} 超出范围 正在移除监听")
+                # 取消订阅
+                if subscriptions and ws:
+                    payload = {
+                        "method": "unsubscribeTokenTrade",
+                        "keys": [token]  
+                    }
+                    ws.send(json.dumps(payload))
+        except Exception as e:
+            logging.error(f"移除监听出错了: {token}  {e}")
 
     else:
         logging.error(f"{token}获取元信息失败 : {response.status_code}")
-
 
 
 # 主程序
@@ -324,15 +377,18 @@ async def main():
     # 启动处理队列的任务
     redis_task = asyncio.create_task(listen_to_redis())
 
+    # 启动载入redis数据任务
+    redis_data_load = asyncio.create_task(load_redis_data())
+
     # 启动交易监听队列任务
     transactions_task= asyncio.create_task(transactions_message())
 
     # 启动订阅清理任务
     cleanup_task = asyncio.create_task(cleanup_subscriptions())
 
+
     # 等待任务完成
-    await asyncio.gather(ws_task, redis_task,transactions_task,cleanup_task)
-    # await asyncio.gather(redis_task)
+    await asyncio.gather(ws_task,redis_data_load,redis_task,transactions_task,cleanup_task)
 
 
 # 启动 WebSocket 处理程序

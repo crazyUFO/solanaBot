@@ -32,7 +32,9 @@ REDIS_PORT = 6379
 REDIS_PWD = "xiaosan@2020"
 REDIS_DB = 0
 # 订阅过期时间设置为10分钟
-SUBSCRIPTION_EXPIRY = timedelta(minutes=10)
+SUBSCRIPTION_EXPIRY = 10 * 6
+# 筛选地址活跃度为10分钟活跃
+TOKEN_EXPIRY = 10 * 6
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
@@ -91,20 +93,23 @@ ws = None# WebSocket 连接
 
 async def cleanup_subscriptions():
     while True:
-        current_time = datetime.utcnow()
+        current_time = time.time()
         expired_addresses = []
         
         # 遍历所有订阅，检查是否超过了过期时间
-        for mint_address, timestamp in subscriptions.items():
-            if current_time - timestamp > SUBSCRIPTION_EXPIRY:
+        for mint_address, item in subscriptions.items():
+            if current_time - item['create_time'] > SUBSCRIPTION_EXPIRY:
                 expired_addresses.append(mint_address)
 
         # 移除过期的订阅
         for mint_address in expired_addresses:
+            #将活跃度在设定值范围内的 请求查看市值
+            if current_time - subscriptions[mint_address]["last_trade_time"] < TOKEN_EXPIRY:
+                logging.info(f'代币 {mint_address} 已经过了设定的 {SUBSCRIPTION_EXPIRY}s 订阅存活时间 但是依然在代币设定的活跃度  {TOKEN_EXPIRY}s 范围内')
+                executor.submit(check_tokens_to_redis, mint_address)
             del subscriptions[mint_address]
             logging.info(f"订阅 {mint_address} 已过期，已取消订阅。")
-
-        
+               
         # 取消订阅
         if subscriptions and ws:
             payload = {
@@ -118,10 +123,7 @@ async def cleanup_subscriptions():
         logging.error(f"----数据处理队列{message_queue_2.qsize()} 条----")
         logging.error(f"----进程播报结束----")
         logging.info(f"目前订阅数量 {len(subscriptions)}")
-
-        #将过期的地址查询市值 超过1W 小于 10W的加入redis
-        for item in expired_addresses:
-            executor.submit(check_tokens_to_redis, item)
+        logging.info(f"本次取消数量 {len(expired_addresses)}")
         await asyncio.sleep(60)  # 每60秒检查一次
 
 # 异步函数：处理 WebSocket
@@ -174,10 +176,13 @@ async def process_message():
                 mint_address = big_data["mint"]
                 
                 # Subscribing to trades on tokens
-            # 如果该 mint_address 不在订阅列表中，进行订阅，并记录时间戳
+            # 如果该 mint_address 不在订阅列表中，进行订阅，并记录时间戳 生成最后交易时间字段
                 if mint_address not in subscriptions:
-                    subscriptions[mint_address] = datetime.utcnow()
-                    logging.info(f"订阅新地址 {mint_address} 时间戳已记录。")
+                    subscriptions[mint_address] = {
+                        "create_time":time.time(),#给个创建时间
+                        "last_trade_time":time.time() # 记录下这个币种最后一次用户买入的时间
+                    }
+                    logging.info(f"订阅 {mint_address} 时间戳已记录")
                     
                 payload = {
                     "method": "subscribeTokenTrade",
@@ -196,9 +201,10 @@ async def transactions_message():
         data = await message_queue_2.get()
         try:
             big_data = json.loads(data)
-
-            if "traderPublicKey" not in big_data:
-                continue
+            #加入最后活跃时间
+            if big_data['mint'] in subscriptions:
+                subscriptions[big_data['mint']]['last_trade_time'] = time.time()
+                logging.info(f"代币 {big_data['mint']} 最后一次购买时间刷新 {subscriptions[big_data['mint']]['last_trade_time']}")
             # 将任务提交给线程池进行处理
             # 检查键是否存在
             if redis_client.exists(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}") == 0:   #没有缓存就发出请求流程
@@ -327,11 +333,10 @@ def check_tokens_to_redis(token):
         response_data = response.json()
         data = response_data.get('data',{})
         market_cap = data.get('market_cap',0)
-        if market_cap >= MIN_TOKEN_CAP and market_cap < MAX_TOKEN_CAP:
+        if market_cap < MAX_TOKEN_CAP:
         # if data.get('address',""):
             redis_client.rpush("tokens", json.dumps(data))
-            logging.info(f"交易的元数据--------{data}")
-            logging.info(f"{token} 已经压入redis监听池 市值: {market_cap}")
+            logging.info(f"{token} 已经压入redis监听池 market_cap: {market_cap:.4f}")
     else:
         logging.error(f"{token}获取元信息失败 : {response.json()}")
 
