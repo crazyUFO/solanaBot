@@ -111,7 +111,7 @@ async def cleanup_subscriptions():
         #取消订阅
         if ws:
         #将订阅的数组分片，以免数据过大 WS会断开
-            chunks = [subscriptions[i:i + 30] for i in range(0, len(subscriptions), 30)]
+            chunks = [expired_addresses[i:i + 30] for i in range(0, len(expired_addresses), 30)]
             for chunk in chunks:
                 # 
                 payload = {
