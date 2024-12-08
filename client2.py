@@ -35,7 +35,7 @@ TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNz
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
 
 
-TOKEN_EXPIRY = 10 * 6 # 筛选地址活跃度为10分钟活跃
+TOKEN_EXPIRY = 10 * 60 # 筛选地址活跃度为10分钟活跃
 ADDRESS_EXPIRY = "expiry:"#redis存放已经请求过的 地址
 ADDRESS_SUCCESS = "success:"#存放播报的
 TOKEN_IN_SCOPE = "token:" #保存范围内以上的币种
