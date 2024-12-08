@@ -101,13 +101,13 @@ async def cleanup_subscriptions():
         
         # 移除过期的订阅
         for mint_address in expired_addresses:
-            redis_client.delete(redis_client.delete(f"{TOKEN_IN_SCOPE}{token}"))
+            redis_client.delete(redis_client.delete(f"{TOKEN_IN_SCOPE}{mint_address}"))
             del subscriptions[mint_address]
             logging.info(f"订阅 {mint_address} 活跃度低下 已取消订阅")
         
-        #将剩下的这些，再看看市值有没有超过设定值，超过也一起删了
-        for token,last_trade_time in subscriptions.items():
-            executor.submit(check_tokens_to_redis, token)
+        # #将剩下的这些，再看看市值有没有超过设定值，超过也一起删了
+        # for token,last_trade_time in subscriptions.items():
+        #     executor.submit(check_tokens_to_redis, token)
         #取消订阅
         if ws:
         #将订阅的数组分片，以免数据过大 WS会断开
@@ -175,7 +175,7 @@ async def listen_to_redis():
                     if token not in subscriptions:
                         subscriptions[token] = time.time()
                         # 存入redis
-                        redis_client.set(f"{TOKEN_IN_SCOPE}{token}",json.dumps(data))
+                        #redis_client.set(f"{TOKEN_IN_SCOPE}{token}",json.dumps(data))
                         logging.info(f"订阅新地址 {token} 已记录。")
                         payload = {
                             "method": "subscribeTokenTrade",
