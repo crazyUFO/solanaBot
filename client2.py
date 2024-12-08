@@ -349,7 +349,7 @@ def check_tokens_to_redis(token):
     if response.status_code == 200:
         response_data = response.json()
         data = response_data.get('data',{})
-        market_cap = data.get('market_cap',0)
+        market_cap = data.get('market_cap',0) or 0
         logging.info(f"token {token} market_cap {market_cap}")
         try:
             if market_cap > MAX_TOKEN_CAP:# 再范围之外移除监听
