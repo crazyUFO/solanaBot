@@ -8,7 +8,7 @@ import requests  # 用于发送 Telegram API 请求
 import os
 from logging.handlers import TimedRotatingFileHandler
 from portfolivalueCalculator import PortfolioValueCalculator
-from datetime import datetime, timedelta
+from datetime import datetime, date
 import concurrent.futures
 import redis
 import time
@@ -225,10 +225,10 @@ async def transactions_message():
                 subscriptions[big_data['mint']] = time.time()
                 logging.info(f"代币 {big_data['mint']} 最后一次购买时间刷新 {subscriptions[big_data['mint']]}")
             # 检查键是否存在
-            if redis_client.exists(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}") == 0:   #没有缓存就发出请求流程
-                redis_client.set(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}",big_data['traderPublicKey'],REDIS_EXPIRATION_TIME) #缓存已经请求过的地址
+            # if redis_client.exists(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}") == 0:   #没有缓存就发出请求流程
+            #     redis_client.set(f"{ADDRESS_EXPIRY}{big_data['traderPublicKey']}",big_data['traderPublicKey'],REDIS_EXPIRATION_TIME) #缓存已经请求过的地址
             #await start(session, big_data)  
-            
+            executor.submit(start, big_data)
         except Exception as e:
             logging.error(f"处理消息时出错2: {e}")
 
@@ -239,6 +239,8 @@ def start(item):
         # 检查数据是否符合条件
         sol_bal_change = response_data.get('data',{}).get('activities',[])
         active_data = {}
+        if len(sol_bal_change) == 0:#看看能不能每个活动都查到
+            logging.error(f'{item['traderPublicKey']} 查询 {item['signature']} 失败')
         for value in sol_bal_change:
                 if(value['name'] == "PumpFunSwap" and value['program_id'] == '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'):
                     active_data  = value.get('data',{})
@@ -252,35 +254,28 @@ def start(item):
 
 # 异步请求用户交易记录和余额
 def check_user_transactions(item):
-    response= requests.get(f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&page=1&page_size=10&sort_by=block_time&sort_order=desc",headers=headers) 
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()##获取今天0点的时间往前查，也就说今天的交易不算在内的最后一次买入是什么时候
+    url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]=0&block_time[]={today}&page=1&page_size=40&sort_by=block_time&sort_order=desc" 
+    response= requests.get(url,headers=headers) 
     if response.status_code == 200:
         response_data =  response.json()
-        if response_data.get('success') and len(response_data.get('data', [])) > 0:
-            arr = response_data['data']
-            time1 = arr[0]['block_time'] #这个是最新的数据，如果交易记录中没拉到最新的交易数据，就以这个值 和当下时间作为对比
-            time2 = int(time.time())
-            flag = False
-            # 遍历数据
-            for i in range(len(arr)):
-                if arr[i]['trans_id'] == item['signature']:  # 对比
-                    # 取出当前数据和下一条数据
-                    flag = True
-                    time1 = arr[i]['block_time']
-                    time2 = arr[i + 1]['block_time'] if i + 1 < len(arr) else None  # 防止越界
-                    break  # 结束循环
-            if flag and time2!=None:#表示找到交易记录了 并且 time2 有值 判断他不是新的钱包
-                time_diff = (time1 - time2) / 86400  # 将区块时间转换为天数
-                logging.info(f"{item['traderPublicKey']} 查到订单{item['signature']}的时间 时间差 {time_diff} 交易活动数据长度{len(arr)}")
-            else:
-                time_diff = (time2 - time1) / 86400
-                logging.info(f"{item['traderPublicKey']} 对比使用了当前时间 时间差 {time_diff} 交易活动数据长度{len(arr)}")
-            if time_diff >= DAY_NUM:
-                logging.info(f"{item['traderPublicKey']} 在过去 {time_diff:.4f} 天内没有代币交易，突然进行了交易。")        
+        data = response_data.get('data', [])
+        block_time = None
+        if len(data) > 0:
+            for value in data:
+                routers = value.get("routers",{})
+                if routers:
+                    routers["token1"] == "So11111111111111111111111111111111111111111"#证明是买入
+                    block_time = value['block_time']
+                
+        if block_time:# 查找今天除外的买入记录，第一条查看他的区块链时间并且大于设定值
+            day_diff = (datetime.fromtimestamp(today).date() - datetime.fromtimestamp(block_time).date()).days()
+            if  day_diff >= DAY_NUM:
+                logging.info(f"{item['traderPublicKey']} 在过去 {day_diff} 天内没有代币交易，突然进行了交易。")        
                 # 检查用户账户余额
                 check_user_balance(item)
         else:
-            logging.info(f"{item['traderPublicKey']}交易数据量过少是新钱包")
-
+            logging.error(f"{item['traderPublicKey']} {item['signature']} 获取历史区块链时间失败 参数时间戳 {today}")
     else:
         logging.error(f"请求用户交易记录失败: {response.status_code} - { response.text()}")
 
