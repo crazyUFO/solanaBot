@@ -269,7 +269,7 @@ def check_user_transactions(item):
                     block_time = value['block_time']
                 
         if block_time:# 查找今天除外的买入记录，第一条查看他的区块链时间并且大于设定值
-            day_diff = (datetime.fromtimestamp(today).date() - datetime.fromtimestamp(block_time).date()).days
+            day_diff = (time.time() - block_time) // 86400
             logging.info(f"两笔交易的时间差 {day_diff} 天")
             if  day_diff >= DAY_NUM:
                 logging.info(f"{item['traderPublicKey']} 在过去 {day_diff} 天内没有代币交易，突然进行了交易。")        
