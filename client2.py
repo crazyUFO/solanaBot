@@ -246,7 +246,7 @@ def start(item):
                     active_data  = value.get('data',{})
                     break
         item["amount"] = active_data.get("amount_1",0)/ (10 ** 9)
-        logging.info(f"用户 {item['traderPublicKey']} tx_hash{item['signature']}  交易金额:{item['amount']}")
+        logging.info(f"用户 {item['traderPublicKey']} {item['signature']}  交易金额:{item['amount']}")
         if item["amount"] >= SINGLE_SOL:#条件一大于预设值
                 check_user_transactions(item)
     else:
@@ -270,6 +270,7 @@ def check_user_transactions(item):
                 
         if block_time:# 查找今天除外的买入记录，第一条查看他的区块链时间并且大于设定值
             day_diff = (datetime.fromtimestamp(today).date() - datetime.fromtimestamp(block_time).date()).days()
+            logging.info(f"两笔交易的时间差 {day_diff} 天")
             if  day_diff >= DAY_NUM:
                 logging.info(f"{item['traderPublicKey']} 在过去 {day_diff} 天内没有代币交易，突然进行了交易。")        
                 # 检查用户账户余额
