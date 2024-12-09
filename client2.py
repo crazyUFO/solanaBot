@@ -240,7 +240,7 @@ def start(item):
         sol_bal_change = response_data.get('data',{}).get('activities',[])
         active_data = {}
         if len(sol_bal_change) == 0:#看看能不能每个活动都查到
-            logging.error(f'{item['traderPublicKey']} 查询 {item['signature']} 失败')
+            logging.error(f"{item['traderPublicKey']} 查询 {item['signature']} 失败")
         for value in sol_bal_change:
                 if(value['name'] == "PumpFunSwap" and value['program_id'] == '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'):
                     active_data  = value.get('data',{})
@@ -275,7 +275,7 @@ def check_user_transactions(item):
                 # 检查用户账户余额
                 check_user_balance(item)
         else:
-            logging.error(f"{item['traderPublicKey']} {item['signature']} 获取历史区块链时间失败 参数时间戳 {today}")
+            logging.error(f"{item['traderPublicKey']} {item['signature']} 获取历史区块链时间失败 参数时间戳 {today} 之前并无交易数据 新钱包 ")
     else:
         logging.error(f"请求用户交易记录失败: {response.status_code} - { response.text()}")
 
