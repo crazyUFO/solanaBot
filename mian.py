@@ -25,7 +25,7 @@ TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # 线上 
 
 TELEGRAM_CHAT_ID = '@laojingyu'  # 线上 Telegram 用户或群组 ID
 #TELEGRAM_CHAT_ID = '@solanapostalert'  # 测试 Telegram 用户或群组 ID
-HELIUS_API_KEY = 'c3b599f9-2a66-494c-87da-1ac92d734bd8'#HELIUS API KEY
+HELIUS_API_KEY = 'c3b599f9-2a66-494c-87da-1ac92d734bd8'#HELIUS API KEY#
 # Redis 配置
 REDIS_HOST = "43.153.140.171"
 REDIS_PORT = 6379
@@ -244,21 +244,23 @@ def check_user_transactions(item):
         response_data =  response.json()
         data = response_data.get('data', [])
         block_time = None
+        #logging.info(f"{item['traderPublicKey']}  {json.dumps(data)} {today-86400}")
         if len(data) > 0:
             for value in data:
                 routers = value.get("routers",{})
                 if routers:
                     routers["token1"] == "So11111111111111111111111111111111111111111"#证明是买入
                     block_time = value['block_time']
+                    break
                 
         if block_time:# 查找今天除外的买入记录，第一条查看他的区块链时间并且大于设定值
-            day_diff = (today - block_time) / 86400
+            day_diff = (time.time() - block_time) / 86400
             if  day_diff >= DAY_NUM:
                 logging.info(f"{item['traderPublicKey']} 在过去 {day_diff:.4f} 天内没有代币交易，突然进行了交易。")        
                 # 检查用户账户余额
                 check_user_balance(item)
             else:
-                logging.info((f"两笔交易的时间差 {day_diff:.4f} 天"))
+                logging.info(f"用户 {item['traderPublicKey']} 两笔交易的时间差 {day_diff} 天 参数 {today-86400}")
         else:
             logging.error(f"{item['traderPublicKey']} {item['signature']} 获取历史区块链时间失败 参数时间戳 {today} 之前并无交易数据 新钱包 ")
     else:
