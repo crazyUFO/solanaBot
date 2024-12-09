@@ -237,8 +237,8 @@ def start(item):
 
 # 异步请求用户交易记录和余额
 def check_user_transactions(item):
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()##获取今天0点的时间往前查，也就说今天的交易不算在内的最后一次买入是什么时候
-    url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]=0&block_time[]={today}&page=1&page_size=10&sort_by=block_time&sort_order=desc" 
+    today = time.time() #获取当前订单24小时之前的最后一笔买入
+    url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]=0&block_time[]={(today-86400)}&page=1&page_size=20&sort_by=block_time&sort_order=desc" 
     response= requests.get(url,headers=headers) 
     if response.status_code == 200:
         response_data =  response.json()
@@ -252,7 +252,7 @@ def check_user_transactions(item):
                     block_time = value['block_time']
                 
         if block_time:# 查找今天除外的买入记录，第一条查看他的区块链时间并且大于设定值
-            day_diff = (time.time() - block_time) // 86400
+            day_diff = (today - block_time) / 86400
             if  day_diff >= DAY_NUM:
                 logging.info(f"{item['traderPublicKey']} 在过去 {day_diff:.4f} 天内没有代币交易，突然进行了交易。")        
                 # 检查用户账户余额
