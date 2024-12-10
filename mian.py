@@ -256,6 +256,9 @@ def check_user_transactions(item):
             else:
                 last_time = value['block_time'] # 当区块链时间有一个是今天以外的时间，将这个对象取出并结束循环
                 break
+        if sum >10:
+            logging.info(f"用户 {item['traderPublicKey']} 今日交易量已经超过10条")
+            return
         if not last_time:
             logging.info(f"用户 {item['traderPublicKey']} 20条以内没有今日之外的交易数据")
             return
