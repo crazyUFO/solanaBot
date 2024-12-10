@@ -7,7 +7,7 @@ import requests  # 用于发送 Telegram API 请求
 import os
 from logging.handlers import TimedRotatingFileHandler
 from portfolivalueCalculator import PortfolioValueCalculator
-from datetime import datetime, date
+from datetime import datetime, timedelta
 import concurrent.futures
 import redis
 import time
@@ -237,39 +237,38 @@ def start(item):
 
 # 异步请求用户交易记录和余额
 def check_user_transactions(item):
-    now = int(time.time()) #当前时间
-    start = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())#今天的0点
-    today_data = check_user_transactions_24h(start,now,item)
-    block_time = None
-    if len(today_data)<10:
-        for value in today_data:
-            routers = value.get("routers",{})
-            if routers:
-                block_time = value['block_time']#证明买入 并且是今天的第一单买入
-                break
-        if not block_time: #如果不存在这个时间戳的话
-            block_time = now
-        #接下来要请求今天第一单买入和第一单买入的时间往前推48小时 时间查询线终点减去一秒排除自己
-        url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={block_time - 86400 * DAY_NUM}&block_time[]={block_time}&page=1&page_size=20&sort_by=block_time&sort_order=desc" 
-        response= requests.get(url,headers=headers) 
-        if response.status_code == 200:
-            response_data =  response.json()
-            data = response_data.get('data', [])
-            if len(data) == 1:
-                for value in data:
-                    if value['block_time'] ==block_time:#证明三天内无任何操作
-                        data =[]
-            if len(data) ==0:#三天内无任何交易数据就查看余额
-                logging.info(f"用户 {item['traderPublicKey']} 符合今日第一笔买入的时间往前推算三天时间并未产生任何交易的要求")
-                check_user_balance(item)
+    try:
+        now = datetime.now() #当前时间
+        start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
+        today = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())#今天的0点
+        transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近90天内的20条交易记录
+        
+        if len(transactions_data)==0:
+            logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号")
+            return
+        
+        sum = 0 #计算今日内的条数
+        last_time = None #存放今日之外的最后一笔交易的时间
+        first_time = None #存放今日内的第一笔交易的时间
+        for value in transactions_data: #有几种情况 1.用户今天只交易了一条没有以往的数据 first_time有值 last_time 是none  sum <= 10 2.用户今日数据超标 first有值 last_time 是none sum > 10 3.今日用户没有交易 但是有以往的数据 first_time 是none last_time 是 有值的 sum是0
+            if value['block_time'] - today > 0:#区块链时间减去今天0点的时间大于0 代表今天之内交易的
+                sum=sum+1
             else:
-                logging.error(f"用户 {item['traderPublicKey']} 三天内存在别的操作")
-        else:
-            logging.error(f"用户 {item['traderPublicKey']} 交易记录失败: {response.status_code} - { response.text()}")
-    else:
-        logging.error(f"用户 {item['traderPublicKey']} 今日操作超过10次 疑似机器人")
-   
-    
+                last_time = value['block_time'] # 当区块链时间有一个是今天以外的时间，将这个对象取出并结束循环
+                break
+        if not last_time:
+            logging.info(f"用户 {item['traderPublicKey']} 20条以内没有今日之外的交易数据")
+            return
+        if not first_time:
+            first_time = now.timestamp()
+        time_diff = (first_time - last_time) / 86400
+        logging.info(f"用户 {item['traderPublicKey']} 今日交易 {sum}笔 今日第一笔和之前最后一笔交易时间差为 {time_diff} 天")
+        if time_diff >=DAY_NUM:
+            check_user_balance(item)
+    except Exception as e:
+         print("捕捉到的异常:", e)
+         print("当前作用域中的变量:", dir())  # 打印所有变量和模块名
+
 
 
 # 异步请求用户的账户余额
@@ -310,9 +309,9 @@ token详情:<a href="https://solscan.io/account/{item['traderPublicKey']}#defiac
     except Exception as e:
             logging.error(f"获取{item['traderPublicKey']}的余额出错{e}")
     
-# 查看用户近24小时内的交易 条数
-def check_user_transactions_24h(start,end,item):
-    url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={start}&block_time[]={(end)}&page=1&page_size=20&sort_by=block_time&sort_order=asc"
+# 查看用户一段时间的交易记录
+def fetch_user_transactions(start_time,end_time,item):
+    url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={start_time}&block_time[]={end_time}&page=1&page_size=20&sort_by=block_time&sort_order=desc"
     response= requests.get(url,headers=headers)
     if response.status_code == 200:
         response_data =  response.json()
