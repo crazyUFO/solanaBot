@@ -237,34 +237,37 @@ def start(item):
 
 # 异步请求用户交易记录和余额
 def check_user_transactions(item):
-    today = time.time() #获取当前订单24小时之前的最后一笔买入
-    url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]=0&block_time[]={(today-86400)}&page=1&page_size=20&sort_by=block_time&sort_order=desc" 
-    response= requests.get(url,headers=headers) 
-    if response.status_code == 200:
-        response_data =  response.json()
-        data = response_data.get('data', [])
-        block_time = None
-        #logging.info(f"{item['traderPublicKey']}  {json.dumps(data)} {today-86400}")
-        if len(data) > 0:
-            for value in data:
-                routers = value.get("routers",{})
-                if routers:
-                    routers["token1"] == "So11111111111111111111111111111111111111111"#证明是买入
-                    block_time = value['block_time']
-                    break
-                
-        if block_time:# 查找今天除外的买入记录，第一条查看他的区块链时间并且大于设定值
-            day_diff = (time.time() - block_time) / 86400
-            if  day_diff >= DAY_NUM:
-                logging.info(f"{item['traderPublicKey']} 在过去 {day_diff:.4f} 天内没有代币交易，突然进行了交易。")        
-                # 检查用户账户余额
+    now = time.time() #当前时间
+    start = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())#今天的0点
+    today_data = check_user_transactions_24h(start,now,item)
+    block_time = None
+    if len(today_data)<10:
+        for value in today_data:
+            routers = value.get("routers",{})
+            if routers:
+                routers["token1"] == "So11111111111111111111111111111111111111111"#证明买入 并且是今天的第一单买入
+                block_time = value['block_time']
+                break
+        if not block_time: #如果不存在这个时间戳的话
+            block_time = now
+        #接下来要请求今天第一单买入和第一单买入的时间往前推48小时
+        url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={block_time - 86400 * DAY_NUM}&block_time[]={block_time}&page=1&page_size=20&sort_by=block_time&sort_order=desc" 
+        response= requests.get(url,headers=headers) 
+        if response.status_code == 200:
+            response_data =  response.json()
+            data = response_data.get('data', [])
+            if len(data) ==0:#三天内无任何交易数据就查看余额
+                logging.info(f"用户 {item['traderPublicKey']} 符合今日第一笔买入的时间往前推算三天时间并未产生任何交易的要求")
                 check_user_balance(item)
             else:
-                logging.info(f"用户 {item['traderPublicKey']} 两笔交易的时间差 {day_diff} 天 参数 {today-86400}")
+                logging.error(f"用户 {item['traderPublicKey']} 三天内存在别的操作")
         else:
-            logging.error(f"{item['traderPublicKey']} {item['signature']} 获取历史区块链时间失败 参数时间戳 {today} 之前并无交易数据 新钱包 ")
+            logging.error(f"用户 {item['traderPublicKey']} 交易记录失败: {response.status_code} - { response.text()}")
     else:
-        logging.error(f"请求用户交易记录失败: {response.status_code} - { response.text()}")
+        logging.error(f"用户 {item['traderPublicKey']} 今日操作超过10次 疑似机器人")
+   
+    
+
 
 # 异步请求用户的账户余额
 def check_user_balance(item):
@@ -303,7 +306,15 @@ token详情:<a href="https://solscan.io/account/{item['traderPublicKey']}#defiac
                     redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
     except Exception as e:
             logging.error(f"获取{item['traderPublicKey']}的余额出错{e}")
-        
+    
+# 查看用户近24小时内的交易 条数
+def check_user_transactions_24h(start,end,item):
+    url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={start}&block_time[]={(end)}&page=1&page_size=20&sort_by=block_time&sort_order=asc"
+    response= requests.get(url,headers=headers)
+    if response.status_code == 200:
+        response_data =  response.json()
+        return response_data.get('data', [])
+    return []
 
 
 # 发送 Telegram 消息
