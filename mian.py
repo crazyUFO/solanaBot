@@ -229,6 +229,11 @@ def start(item):
                     active_data  = value.get('data',{})
                     break
         item["amount"] = active_data.get("amount_1",0)/ (10 ** 9)
+        #pump推送的购买地址 可能和 实际查出的购买地址不一样
+        real_account =  active_data.get("account","")
+        if item['traderPublicKey'] !=real_account and real_account:
+            logging.error(f"pump 推送的用户为 {item['traderPublicKey']} hash查询的实际用户为 {real_account}")
+            item['traderPublicKey'] = real_account
         logging.info(f"用户 {item['traderPublicKey']} {item['signature']}  交易金额:{item['amount']}")
         if item["amount"] >= SINGLE_SOL:#条件一大于预设值
                 check_user_transactions(item)
