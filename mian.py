@@ -36,7 +36,7 @@ SUBSCRIPTION_EXPIRY = 10 * 60
 # 筛选地址活跃度为10分钟活跃
 TOKEN_EXPIRY = 10 * 60
 # API token 用于身份验证
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDIyODIyOTUsImVtYWlsIjoiY3Jhenl0aWFubEBnbWFpbC5jb20iLCJhY3Rpb24iOiJ0b2tlbi1hcGkiLCJhcGlWZXJzaW9uIjoidjIiLCJpYXQiOjE3MzMyMDIyODJ9.Vy8DY8UP6Z3i2iP8YwvLq3ohNT7CoPH4gcXx_7GY8fE"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
 
 

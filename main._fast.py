@@ -290,7 +290,7 @@ def send_telegram_notification(message):
         if response.status_code == 200:
             logging.info("通知发送成功！")
         else:
-            logging.error(f"通知发送失败: {response.status_code}")
+            logging.error(f"通知发送失败: {response}")
     except Exception as e:
         logging.error(f"发送通知时出错: {e}")
 
