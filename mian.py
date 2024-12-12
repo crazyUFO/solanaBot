@@ -109,14 +109,24 @@ async def cleanup_subscriptions():
                 executor.submit(check_tokens_to_redis, mint_address)
             del subscriptions[mint_address]
             logging.info(f"订阅 {mint_address} 已过期，已取消订阅。")
-               
-        # 取消订阅
-        if subscriptions and ws:
+                #将订阅的数组分片，以免数据过大 WS会断开
+         #分块取消订阅
+        chunks = [expired_addresses[i:i + 30] for i in range(0, len(expired_addresses), 30)]
+        for chunk in chunks:
+            # 
             payload = {
                 "method": "unsubscribeTokenTrade",
-                "keys": expired_addresses  
+                "keys": chunk  
             }
             await ws.send(json.dumps(payload))
+            await asyncio.sleep(2)       
+        #
+        # if subscriptions and ws:
+        #     payload = {
+        #         "method": "unsubscribeTokenTrade",
+        #         "keys": expired_addresses  
+        #     }
+        #     await ws.send(json.dumps(payload))
         
         logging.error(f"----目前进程播报----")
         logging.error(f"----创建监听队列{message_queue_1.qsize()} 条----")
