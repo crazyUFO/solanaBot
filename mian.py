@@ -86,8 +86,6 @@ message_queue_1 = asyncio.Queue()  # 处理 WS队列监听
 message_queue_2 = asyncio.Queue()  # 处理 分发线程任务
 subscriptions = {}# 存储mint_address和时间戳
 ws = None# WebSocket 连接
-INITIAL_RETRY_DELAY = 5  # 初始重试延迟，单位秒
-MAX_RETRY_DELAY = 60  # 最大重试延迟，单位秒
 
 
 
@@ -138,54 +136,42 @@ async def cleanup_subscriptions():
         logging.info(f"本次取消数量 {len(expired_addresses)}")
         await asyncio.sleep(60)  # 每60秒检查一次
 
+# 异步函数：处理 WebSocket
+async def websocket_handler():
+    global ws
+    try:
+        async with websockets.connect(WS_URL) as ws_instance:
+            ws = ws_instance  # 这里将 WebSocket 连接存储到全局变量 ws
+            # 连接成功后，发送订阅消息一次
+            payload = {
+                "method": "subscribeNewToken",
+            }
+            await ws.send(json.dumps(payload))
+            logging.info("订阅请求已发送")
 
-
-async def websocket_handler(WS_URL):
-    retry_count = 0  # 重试计数器
-    
-    while True:  # 无限重连
-        try:
-            async with websockets.connect(WS_URL) as ws_instance:
-                retry_count = 0  # 成功连接后重置重试计数器
-                logging.info("WebSocket 连接已建立")
+            # 持续接收消息并放入队列
+            while True:
+                data = await ws.recv()  # 等待并接收新的消息
+                try:
+                    message = json.loads(data)
+                    # 根据消息类型选择将消息放入哪个队列
+                    if "txType" in message and message['txType'] == 'create':
+                        await message_queue_1.put(data)  # 识别订单创建
+                    elif "txType" in message and message["txType"] == "buy":
+                        await message_queue_2.put(data)  # 买入单推送
+                    else:
+                        # logging.warning(f"无法识别的消息类型: {data}")
+                        pass
                 
-                # 发送订阅消息
-                payload = {
-                    "method": "subscribeNewToken",
-                }
-                await ws_instance.send(json.dumps(payload))
-                logging.info("订阅请求已发送")
-
-                # 持续接收并处理消息
-                while True:
-                    data = await ws_instance.recv()
-                    try:
-                        message = json.loads(data)
-                        if "txType" in message:
-                            if message['txType'] == 'create':
-                                await message_queue_1.put(data)
-                            elif message['txType'] == "buy":
-                                await message_queue_2.put(data)
-                            else:
-                                logging.warning(f"未处理的消息类型: {message.get('txType')}")
-                        else:
-                            logging.warning(f"未找到 txType 字段: {data}")
-                    except json.JSONDecodeError:
+                except json.JSONDecodeError:
                         logging.error(f"消息解析失败: {data}")
-                    except Exception as e:
-                        logging.error(f"处理消息时发生错误: {e}")
 
-        except websockets.exceptions.ConnectionClosedError as e:
-            logging.error(f"WebSocket 连接关闭: {e}. 正在重试...")
-        except Exception as e:
-            logging.error(f"发生错误: {e}. 正在重试...")
-
-        # 如果连接关闭或者发生错误，进行指数退避重连
-        retry_count += 1
-        delay = min(INITIAL_RETRY_DELAY * (2 ** (retry_count - 1)), MAX_RETRY_DELAY)
-        logging.info(f"等待 {delay} 秒后重连... (重试次数: {retry_count})")
-        await asyncio.sleep(delay)
-
+    except websockets.exceptions.ConnectionClosedError as e:
+        logging.error(f"WebSocket 连接意外关闭: {e}. 正在重连...")
+        await asyncio.sleep(5)  # 等待 5 秒后重新连接
+    except Exception as e:
+        logging.error(f"发生了意外错误: {e}. 正在重连...")
+        await asyncio.sleep(5)  # 等待 5 秒后重新连接
 
 # 异步函数：从队列中获取消息并处理
 async def process_message():
