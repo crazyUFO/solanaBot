@@ -32,9 +32,9 @@ REDIS_PORT = 6379
 REDIS_PWD = "xiaosan@2020"
 REDIS_DB = 0
 # 订阅过期时间设置为10分钟
-SUBSCRIPTION_EXPIRY = 10 * 60
+SUBSCRIPTION_EXPIRY = 30 * 60
 # 筛选地址活跃度为10分钟活跃
-TOKEN_EXPIRY = 10 * 60
+TOKEN_EXPIRY = 30 * 60
 # API token 用于身份验证
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
@@ -59,8 +59,8 @@ log_filename = os.path.join(LOG_DIR, "client.log")
 handler = TimedRotatingFileHandler(
     log_filename,
     when="h",  # 按小时轮换
-    interval=4,  # 每12小时轮换一次
-    backupCount=3,  # 保留最近14个轮换的日志文件（即7天的日志）
+    interval=12,  # 每12小时轮换一次
+    backupCount=6,  # 保留最近14个轮换的日志文件（即7天的日志）
     encoding="utf-8"  # 指定文件编码为 utf-8，解决中文乱码问题
 )
 
