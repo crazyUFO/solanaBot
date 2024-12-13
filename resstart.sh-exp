@@ -1,5 +1,10 @@
 #!/bin/bash
+# 读取配置文件
+INI_FILE="config.ini"
 
+# 获取 [LOG] 部分的 NAME 和 DIR 配置，忽视空格
+name=$(awk -F '=' '/^\[LOG\]/ {f=1} f && $1~"NAME" {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$INI_FILE")
+dir=$(awk -F '=' '/^\[LOG\]/ {f=1} f && $1~"DIR" {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$INI_FILE")
 # 获取当前脚本所在目录
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
@@ -7,7 +12,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 VENV_DIR="$SCRIPT_DIR/venv"
 
 # 指定要运行的 Python 脚本路径
-PYTHON_SCRIPT="$SCRIPT_DIR/client2.py"
+PYTHON_SCRIPT="$SCRIPT_DIR/client_child.py"
 
 # 获取 Git 仓库路径（假设当前脚本目录是 Git 仓库根目录）
 REPO_DIR="$SCRIPT_DIR"
@@ -55,3 +60,6 @@ echo "可以使用 'tail -f /dev/null' 来查看后台输出"
 
 # 退出虚拟环境
 deactivate
+echo "启动自动打印日志..."
+tail -f "$SCRIPT_DIR/$dir/$name"
+
