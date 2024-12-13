@@ -81,7 +81,7 @@ redis_client = redis.StrictRedis(
 ws = None  # WebSocket 连接
 
 # 定义队列名称
-queues = [f"tokens_{i}" for i in range(1, 11)]  # 10个队列: tokens_1, tokens_2, ..., tokens_10
+queues = [f"tokens_{i}" for i in range(1, 12)]  # 10个队列: tokens_1, tokens_2, ..., tokens_10
 
 # 循环队列生成器（确保按顺序分配数据到队列）
 queue_cycle = cycle(queues)
