@@ -45,32 +45,30 @@ REDIS_EXPIRATION_TIME = 3 * 24 * 60 * 60 #redis 缓存请求过的地址，三�
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS)
 # 常量定义
 
-# 日志文件夹和文件名
+# 确保日志目录存在
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
-log_filename = os.path.join(LOG_DIR,LOG_NAME)
+# 日志文件路径
+log_filename = os.path.join(LOG_DIR, LOG_NAME)
 
-# 创建一个TimedRotatingFileHandler，日志每12小时轮换一次，保留最近7天的日志
-handler = TimedRotatingFileHandler(
-    log_filename,
-    when="h",  # 按小时轮换
-    interval=12,  # 每12小时轮换一次
-    backupCount=6,  # 保留最近14个轮换的日志文件（即7天的日志）
-    encoding="utf-8"  # 指定文件编码为 utf-8，解决中文乱码问题
-)
+# 创建一个 FileHandler 直接写入一个日志文件
+handler = logging.FileHandler(log_filename, encoding="utf-8")
 
 # 设置日志格式
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 
-# 配置日志记录
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[handler, logging.StreamHandler()]  # 同时输出到文件和控制台
-)
+# 配置日志记录器
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)  # 设置日志记录器的最低级别
 
-logging.info("日志轮换配置完成")
+# 添加日志处理器
+logger.addHandler(handler)
+logger.addHandler(logging.StreamHandler())  # 输出到控制台
+
+# 只使用一个配置来处理日志：logger 处理所有输出
+logger.info("日志已启动")
 
 # 初始化 Redis
 redis_client = redis.StrictRedis(
