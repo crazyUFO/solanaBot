@@ -60,7 +60,8 @@ echo "可以使用 'tail -f /dev/null' 来查看后台输出"
 
 # 退出虚拟环境
 deactivate
-echo "启动自动打印日志..."
+echo "等待 5 秒..."
+sleep 5
 # 打印日志
 LOG_FILE="$SCRIPT_DIR/$dir/$name"
 
