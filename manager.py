@@ -103,10 +103,13 @@ reset_counters()
 async def cleanup_subscriptions():
     """清理过期的订阅或处理其他清理操作"""
     while True:
-        for list_name in queues:            
-            logging.info(f"队列 {list_name} 推送 {redis_client.get(f"{list_name}_count")} 条")
-            logging.info(f"队列 {list_name} 收到 {redis_client.get(f"{list_name}_processed_count")} 条")
-            logging.info(f"队列 {list_name} 播报 {redis_client.get(f"{list_name}_success_count")} 条")
+        for list_name in queues:
+            _count = redis_client.get(f"{list_name}_count")
+            _processed_count = redis_client.get(f"{list_name}_processed_count")            
+            _success_count = redis_client.get(f"{list_name}_success_count")            
+            logging.info(f"队列 {list_name} 推送 {_count} 条")
+            logging.info(f"队列 {list_name} 收到 {_processed_count} 条")
+            logging.info(f"队列 {list_name} 播报 {_success_count} 条")
         await asyncio.sleep(60)  # 每60秒检查一次
 
 async def websocket_handler():
