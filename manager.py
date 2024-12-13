@@ -137,7 +137,7 @@ async def websocket_handler():
                         if "txType" in message and message['txType'] == 'create':
                             # 获取下一个队列名
                             queue_name = next(queue_cycle)
-                            redis_client.rpush(queue_name, json.dumps(message))  # 推送到对应的 Redis 队列
+                            redis_client.rpush(queue_name, data)  # 推送到对应的 Redis 队列
                             logging.info(f"新建盘数据已推送至 {queue_name}")
                             # 更新计数器
                             redis_client.incr(f"{queue_name}_count")
