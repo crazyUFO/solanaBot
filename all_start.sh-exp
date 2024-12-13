@@ -3,10 +3,11 @@
 # 服务器列表
 servers=(
     "root@server1"
-    "user@server2"
-    "user@server3"
+    "root@server2"
+    "root@server3"
 )
-
+# 每个服务器的密码
+password="your_password_here"
 # 循环通过 SSH 连接到每个服务器并执行命令
 for server in "${servers[@]}"; do
     echo "Connecting to $server..."
