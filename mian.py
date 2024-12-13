@@ -20,11 +20,11 @@ BLANCE = 100  # 账户余额阈值
 TOKEN_BALANCE = 10000 #单位是美刀
 MIN_TOKEN_CAP = 10000 #市值最小 单位是美刀
 MAX_TOKEN_CAP = 100000 #市值最大 单位是美刀
-TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # 线上 Telegram 机器人的 API Token
-#TELEGRAM_BOT_TOKEN = '7601466837:AAHd9g8QJik3kLtjyRDq-OuYD9CcCWKAJR4'  # 测试 Telegram 机器人的 API Token
+#TELEGRAM_BOT_TOKEN = '7914406898:AAHP3LuMY2R647rK3gI0qsiJp0Fw8J-aW_E'  # 线上 Telegram 机器人的 API Token
+TELEGRAM_BOT_TOKEN = '7601466837:AAHd9g8QJik3kLtjyRDq-OuYD9CcCWKAJR4'  # 测试 Telegram 机器人的 API Token
 
-TELEGRAM_CHAT_ID = '@laojingyu'  # 线上 Telegram 用户或群组 ID
-#TELEGRAM_CHAT_ID = '@solanapostalert'  # 测试 Telegram 用户或群组 ID
+#TELEGRAM_CHAT_ID = '@laojingyu'  # 线上 Telegram 用户或群组 ID
+TELEGRAM_CHAT_ID = '@solanapostalert'  # 测试 Telegram 用户或群组 ID
 HELIUS_API_KEY = 'c3b599f9-2a66-494c-87da-1ac92d734bd8'#HELIUS API KEY#
 # Redis 配置
 REDIS_HOST = "10.7.4.14" #内网
@@ -36,7 +36,7 @@ SUBSCRIPTION_EXPIRY = 30 * 60
 # 筛选地址活跃度为10分钟活跃
 TOKEN_EXPIRY = 30 * 60
 # API token 用于身份验证
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDAyNzMxNzUsImVtYWlsIjoibGlhbmdiYTc4ODhAZ21haWwuY29tIiwiYWN0aW9uIjoidG9rZW4tYXBpIiwiYXBpVmVyc2lvbiI6InYyIiwiaWF0IjoxNzMzMjAwMjczfQ.ll8qNb_Z8v4JxdFvMKGWKDHoM7mh2hB33u7noiukOfA"
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3MzMyMDIyODIyOTUsImVtYWlsIjoiY3Jhenl0aWFubEBnbWFpbC5jb20iLCJhY3Rpb24iOiJ0b2tlbi1hcGkiLCJhcGlWZXJzaW9uIjoidjIiLCJpYXQiOjE3MzMyMDIyODJ9.Vy8DY8UP6Z3i2iP8YwvLq3ohNT7CoPH4gcXx_7GY8fE"
 WS_URL = "wss://pumpportal.fun/api/data"  # WebSocket 地址
 
 
