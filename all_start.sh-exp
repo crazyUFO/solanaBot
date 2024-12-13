@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# 服务器列表
+servers=(
+    "root@server1"
+    "user@server2"
+    "user@server3"
+)
+
+# 循环通过 SSH 连接到每个服务器并执行命令
+for server in "${servers[@]}"; do
+    echo "Connecting to $server..."
+    ssh -t "$server" 'bash -s' < /root/solanaBot/restart.sh
+done
