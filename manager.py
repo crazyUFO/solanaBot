@@ -61,7 +61,7 @@ handler.setFormatter(formatter)
 
 # 配置日志记录器
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)  # 设置日志记录器的最低级别
+logger.setLevel(logging.INFO)  # 设置日志记录器的最低级别
 
 # 添加日志处理器
 logger.addHandler(handler)
