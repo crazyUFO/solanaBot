@@ -164,7 +164,7 @@ async def websocket_handler():
 
 # 监听并处理队列数据
 async def listen_to_redis():
-    logging.info("开始监听 Redis 队列...")
+    logging.info("开始监听 {REDIS_LIST} 队列...")
     while True:
         await ws_initialized_event.wait()
         try:
