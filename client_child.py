@@ -69,7 +69,7 @@ handler.setFormatter(formatter)
 
 # 配置日志记录器
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)  # 设置日志记录器的最低级别
+logger.setLevel(logging.INFO)  # 设置日志记录器的最低级别
 
 # 添加日志处理器
 logger.addHandler(handler)
@@ -140,7 +140,6 @@ async def websocket_handler():
                 ws = ws_instance  # 存储 WebSocket 连接实例
                 logging.info("WebSocket 连接已建立！")
                 ws_initialized_event.set()  # 标记 WebSocket 连接已完成
-
                 # 持续接收消息并处理
                 while True:
                     data = await ws.recv()  # 等待并接收新的消息
