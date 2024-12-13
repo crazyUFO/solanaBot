@@ -9,6 +9,13 @@ servers=(
 
 # 循环通过 SSH 连接到每个服务器并执行命令
 for server in "${servers[@]}"; do
-    echo "Connecting to $server..."
+    echo "连接到 $server..."
+    
+    # 执行远程脚本并检查返回值
     ssh -t "$server" 'bash -s' < /root/solanaBot/restart.sh
+    if [ $? -eq 0 ]; then
+        echo "在 $server 上执行成功"
+    else
+        echo "在 $server 上执行失败"
+    fi
 done
