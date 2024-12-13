@@ -61,5 +61,15 @@ echo "可以使用 'tail -f /dev/null' 来查看后台输出"
 # 退出虚拟环境
 deactivate
 echo "启动自动打印日志..."
-tail -f "$SCRIPT_DIR/$dir/$name"
+# 打印日志
+LOG_FILE="$SCRIPT_DIR/$dir/$name"
+
+# 检查日志文件是否存在
+if [ ! -f "$LOG_FILE" ]; then
+    echo "日志文件不存在: $LOG_FILE"
+    exit 1
+else
+    echo "启动自动打印日志..."
+    tail -f "$LOG_FILE"
+fi
 
