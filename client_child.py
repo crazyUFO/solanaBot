@@ -170,10 +170,12 @@ async def listen_to_redis():
             if ws is not None:
                 # 从 Redis 队列中获取数据
                 message = redis_client.lpop(REDIS_LIST)
+                logging.info(f"redis队列 取出 {message}")
                 if message:
                     # 收到服务端的redis消息更新
                     data = json.loads(message)
-                    token = data.get('mint');             
+
+                    token = data.get('mint')     
                     if token not in subscriptions:
                         subscriptions[token] = time.time()
                         # 存入redis
