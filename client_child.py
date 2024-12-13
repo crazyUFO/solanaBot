@@ -174,7 +174,7 @@ async def listen_to_redis():
                     # 收到服务端的redis消息更新
                     data = json.loads(message)
                     logging.info(f"redis队列 取出 {data}")
-                    token = ["mint"]    
+                    token = data["mint"]    
                     if token not in subscriptions:
                         subscriptions[token] = time.time()
                         # 存入redis
