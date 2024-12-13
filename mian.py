@@ -138,7 +138,6 @@ async def cleanup_subscriptions():
 
 
 
-
 async def websocket_handler():
     global ws
     while True:
@@ -147,20 +146,24 @@ async def websocket_handler():
             async with websockets.connect(WS_URL) as ws_instance:
                 ws = ws_instance  # 存储 WebSocket 连接实例
                 logging.info("WebSocket 连接已建立！")
-                # 持续接收消息并放入队列
-            while True:
-                data = await ws.recv()  # 等待并接收新的消息
-                try:
-                    message = json.loads(data)
-                    # 根据消息类型选择将消息放入哪个队列
-                    if "txType" in message and message['txType'] == 'create':
-                        await message_queue_1.put(data)  # 识别订单创建
-                    elif "txType" in message and message["txType"] == "buy":
-                        await message_queue_2.put(data)  # 买入单推送
-                    else:
-                        logging.warning(f"无法识别的消息类型: {data}")
-                        pass               
-                except json.JSONDecodeError:
+                # 持续接收消息并处理
+                payload = {
+                "method": "subscribeNewToken",
+                }
+                await ws.send(json.dumps(payload))
+                logging.info("订阅请求已发送")
+                while True:
+                    data = await ws.recv()  # 等待并接收新的消息
+                    try:
+                        message = json.loads(data)
+                        if "txType" in message and message['txType'] == 'create':
+                            await message_queue_1.put(data)  # 识别订单创建
+                        elif "txType" in message and message["txType"] == "buy":
+                            await message_queue_2.put(data)  # 买入单推送
+                        else:
+                            pass  # 处理其他消息类型（可根据需要添加）
+
+                    except json.JSONDecodeError:
                         logging.error(f"消息解析失败: {data}")
 
         except (websockets.exceptions.ConnectionClosedError, ConnectionRefusedError) as e:
@@ -170,7 +173,6 @@ async def websocket_handler():
         except Exception as e:
             logging.error(f"发生了意外错误: {e}. 正在重连...")
             await asyncio.sleep(5)  # 等待 5 秒后重新连接
-
 
 # 异步函数：从队列中获取消息并处理
 async def process_message():
