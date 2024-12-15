@@ -14,3 +14,8 @@ config.json
 *.log
 *.sh
 config.ini
+
+testws.py
+testchuanyun.py
+testgmgn.py
+

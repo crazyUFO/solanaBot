@@ -1,4 +1,6 @@
 websockets
+tls_client
+cloudbypass
 requests==2.28.1
 helius==0.0.3
 redis==5.2.1
