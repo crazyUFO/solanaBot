@@ -212,59 +212,6 @@ async def process_message():
                     logging.info(f"代币 {mint_address} 重复订阅")                
             except Exception as e:
                 logging.error(f"处理消息时出错1: {e}")
-# # 监听并处理队列数据
-# async def listen_to_redis():
-#     logging.info(f"开始监听 {REDIS_LIST} 队列...")
-#     while True:
-#         await ws_initialized_event.wait()
-#         try:
-#             if ws is not None:
-#                 # 从 Redis 队列中获取数据
-#                 message = redis_client.lpop(REDIS_LIST)
-#                 if message:
-#                     # 收到服务端的redis消息更新
-#                     data = json.loads(message)
-#                     token = data.get("mint")
-#                     if token not in subscriptions:
-#                         subscriptions[token] = time.time()
-#                         # 存入redis
-#                         logging.info(f"订阅新地址 {token} 已记录。")
-#                         payload = {
-#                             "method": "subscribeTokenTrade",
-#                             "keys": [token]  # array of token CAs to watch
-#                         }
-#                         await ws.send(json.dumps(payload))
-#                         # 更新收到计数器
-#                         redis_client.incr(f"{REDIS_LIST}_processed_count")
-#                 else:
-#                     # 如果队列为空，等待一会儿再检查
-#                     await asyncio.sleep(1)
-#         except Exception as e:
-#             logging.error(f"监听 Redis 队列时出错: {e}")
-# #脚本启动加载redis中
-# async def load_redis_data():
-#     logging.info("载入redis已经记录的数据")
-#     # SCAN 命令获取匹配的键
-#     cursor = 0
-#     while True:
-#         await ws_initialized_event.wait()#等待链接
-#         cursor, keys = redis_client.scan(cursor, match=TOKEN_IN_SCOPE+"*")
-#         tokens = []
-#         if len(keys)>0:
-#             for token in keys:
-#                 str = token.replace("token:","")
-#                 subscriptions[str] = time.time()
-#                 logging.info(f"订阅新地址 {str} 已记录。")
-#                 tokens.append(str)
-#             payload = {
-#                 "method": "subscribeTokenTrade",
-#                 "keys": tokens  # array of token CAs to watch
-#             }
-#             await ws.send(json.dumps(payload))
-#             logging.info(f"从redis中拉扫描到未订阅数据,现在订阅 {tokens}")
-#             tokens=[]
-#         if cursor == 0:
-#             break  # 游标为0表示扫描结束
 
 
 #异步函数：从队列中获取交易者数据并处理
@@ -389,6 +336,9 @@ def check_user_profit(item,title):
             logging.info(f"用户 {item['traderPublicKey']} 总盈收: {total_profit} usdt > {TOTAL_PROFIT}")
             data["traderPublicKey"] = item['traderPublicKey']
             data["title"] = title
+            data['mint'] = item['mint']
+            data['amount'] = item['amount']
+            data['signature'] = item['signature']
             send_telegram_notification(tg_message_html_2(data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI])
             #保存通知过的
             redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(data))
@@ -461,18 +411,20 @@ def tg_message_html_1(item):
  msg = f'''
 <b>🐋🐋🐋🐋{item["title"]}🐋🐋🐋🐋</b>
 
-token:\n<code>{item["mint"]}</code>
+<b>token:</b>
+<code>{item["mint"]}</code>
 
-购买的老钱包:\n<code>{item['traderPublicKey']}</code>
+<b>购买的老钱包:</b>
+<code>{item['traderPublicKey']}</code>
 
-购买金额:<b>{(item['amount']):.4f} SOL</b>
-钱包余额:<b>{(item["sol"]):.4f} SOL</b>
-钱包代币余额总计:<b> {(item["total_balance"]):.4f} USDT</b>
-链上查看钱包: <a href="https://solscan.io/account/{item['traderPublicKey']}"><b>详情</b></a> 
-GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{item['traderPublicKey']}"><b>详情</b></a>
-交易详情:<a href="https://solscan.io/tx/{item["signature"]}"><b>查看</b></a>
+<b>购买金额:{(item['amount']):.4f} SOL</b>
+<b>钱包余额{(item["sol"]):.4f} SOL</b>
+<b>钱包代币余额总计: {(item["total_balance"]):.4f} USDT</b>
+<b>链上查看钱包: <a href="https://solscan.io/account/{item['traderPublicKey']}">详情</a></b>
+<b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{item['traderPublicKey']}">详情</a></b>
+<b>交易详情:<a href="https://solscan.io/tx/{item["signature"]}">查看</a></b>
 
-📈查看K线: <a href="https://pump.fun/coin/{item["mint"]}"><b>PUMP</b></a> <a href="https://gmgn.ai/sol/token/{item["mint"]}"><b>GMGN</b></a>
+📈<b>查看K线: <a href="https://pump.fun/coin/{item["mint"]}">PUMP</a></b> <b><a href="https://gmgn.ai/sol/token/{item["mint"]}">GMGN</a></b>
 
 <a href="https://t.me/pepeboost_sol_bot?start=8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>PEPE一键买入</b></a>
 
@@ -485,20 +437,33 @@ def tg_message_html_2(info):
     msg = '''
 <b>🐋🐋🐋🐋{title}🐋🐋🐋🐋</b>
 
-<b>老钱包:</b>
-<code>{traderPublicKey}</code>
-<b>余额: {balance:.4f} SOL</b>
+<b>token:</b>
+<code>{mint}</code>
 
-<b>盈亏详情:</b>
+<b>购买的老钱包:</b>
+<code>{traderPublicKey}</code>
+
+<b>购买金额:{amount:.4f} SOL</b>
+<b>钱包余额: {balance:.4f} SOL</b>
 <b>总盈亏: {total_profit:.4f} USDT</b>
 <b>30d盈亏: {realized_profit_30d:.4f} USDT</b>
 <b>7d盈亏: {realized_profit_7d:.4f} USDT</b>
 
 
-链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}"><b>详情</b></a> 
-GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKey}"><b>详情</b></a>
+<b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}">详情</a></b>
+<b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKey}">详情</a></b>
+<b>交易详情:<a href="https://solscan.io/tx/{signature}">查看</a></b>
+
+📈<b>查看K线: <a href="https://pump.fun/coin/{mint}">PUMP</a></b> <b><a href="https://gmgn.ai/sol/token/{mint}">GMGN</a></b>
+
+<a href="https://t.me/pepeboost_sol_bot?start=8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>PEPE一键买入</b></a>
+
+<a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
     '''.format(
+        mint = info.get("mint"),
         title=info.get("title"),
+        amount=info.get('amount'),
+        signature = info.get('signature'),
         traderPublicKey=info.get("traderPublicKey"),
         balance=float(info.get("balance", 0)),
         total_profit=float(info.get("total_profit", 0)),
