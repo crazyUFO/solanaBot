@@ -399,6 +399,7 @@ def check_user_wallet(item,title):
             logging.info(f"用户 {item['traderPublicKey']} 代币盈亏holdings是空")
             return 
         hold_data = holdings[0]
+        logging.log(f"用户{item['traderPublicKey']} 单笔最大盈利 {hold_data['total_profit']} usdt")
         if(float(hold_data['total_profit']) >= TOTAL_PROFIT):
             hold_data["traderPublicKey"] = item['traderPublicKey']
             hold_data["title"] = title
