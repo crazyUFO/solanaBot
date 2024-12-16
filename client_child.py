@@ -49,7 +49,7 @@ LOG_NAME = config.get('LOG', 'NAME')
 MINT_SUBSCRBED = "mint_subscrbed:"#redis存放已经订阅过的地址 //去重
 ADDRESS_SUCCESS = "success:"#存放播报的 老鲸鱼
 ADDRESS_SUCCESS_BAOJI = "success_baoji:"#存放播报的 暴击
-
+ADDRESS_EXPIRY = "expiry:" #今日交易超限制，新账号，这种的就直接锁住
 # 创建线程池执行器
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 # 请求头
@@ -106,6 +106,21 @@ ws = None# WebSocket 连接
 # 事件标记，表示 WebSocket 已连接
 ws_initialized_event = asyncio.Event()
 
+#十分钟轮询一次当前sol的价格
+def get_sol_for_usdt():
+    proxies = {
+        "https":proxy_expired.get("proxy")
+    }
+    res = gmgn_api.get_gas_price_sol(proxies=proxies)
+    if res.status_code == 200:
+        data = res.json()['data']
+        return  data.get('native_token_usd_price')
+    return 0
+
+sol_price = {
+    "create_time":time.time(),
+    "price":get_sol_for_usdt()
+} #存放sol 比对 USDT的价格 十分钟请求一次
 async def cleanup_subscriptions():
     while True:
         await ws_initialized_event.wait()
@@ -113,9 +128,14 @@ async def cleanup_subscriptions():
         expired_addresses = []
         
         if current_time - proxy_expired.get("create_time") >= 60*9:
-            logging.info(f"更换代理！！")
-            proxy_expired['proxy_expired'] = time.time()
+            logging.info(f"更换代理")
+            proxy_expired['create_time'] = current_time
             proxy_expired['proxy'] = str(proxy.copy().set_expire(60 * 10))
+
+        if current_time - sol_price.get("create_time") >= 60*5:
+            logging.info(f"更新SOL的价格")
+            sol_price['create_time'] = current_time
+            sol_price['price'] = get_sol_for_usdt()
 
 
         # 遍历所有订阅，最后一次交易时间超时
@@ -142,9 +162,11 @@ async def cleanup_subscriptions():
         logging.error(f"----目前进程播报----")
         logging.error(f"----创建监听队列{message_queue_1.qsize()} 条----")
         logging.error(f"----数据处理队列{message_queue_2.qsize()} 条----")
-        logging.error(f"----进程播报结束----")
-        logging.info(f"目前代币数量 {len(subscriptions)}")
-        logging.info(f"本次取消数量 {len(expired_addresses)}")
+        logging.error(f"----目前代币数量 {len(subscriptions)}----")
+        logging.error(f"----本次取消数量 {len(expired_addresses)}----")
+        logging.error(f"----当前使用代理 {proxy_expired['proxy']}----")
+        logging.error(f"----当前SOL美刀 {sol_price['price']}----")
+        logging.error(f"----进程播报结束")
         await asyncio.sleep(60)  # 每过1小时检查一次
 
 async def websocket_handler():
@@ -214,7 +236,6 @@ async def process_message():
             except Exception as e:
                 logging.error(f"处理消息时出错1: {e}")
 
-
 #异步函数：从队列中获取交易者数据并处理
 async def transactions_message():
     while True:
@@ -225,7 +246,11 @@ async def transactions_message():
             if data['mint'] in subscriptions:
                 subscriptions[data['mint']] = time.time()
                 #logging.info(f"代币 {data['mint']} 活跃度刷新 {subscriptions[data['mint']]}")
-            executor.submit(start, data)
+            check = redis_client.exists(f"{ADDRESS_EXPIRY}{data['traderPublicKey']}")
+            if not check: #排除了那些频繁交易的 减少API输出
+                executor.submit(start, data)
+            else:
+                logging.info(f"用户 {data['traderPublicKey']} 已被redis排除24小时")
         except Exception as e:
             logging.error(f"处理消息时出错2: {e}")
 
@@ -285,24 +310,37 @@ def check_user_transactions(item):
                 last_time = value['block_time'] # 当区块链时间有一个是今天以外的时间，将这个对象取出并结束循环
                 break
         if sum > 5:#前面只能出现4条买入，加上自己就是第五条
+            #redis 记录大于5条的用户
+            redis_client.set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","当日大于5条交易",nx=True,ex=86400)
             logging.info(f"用户 {item['traderPublicKey']} 今日交易买入量已超5条")
             return
         if not last_time:
+            #redis 记录新用户
+            redis_client.set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","新账号",nx=True,ex=86400)
             logging.info(f"用户 {item['traderPublicKey']} 没有今日之外的交易数据")
             return
         time_diff = (first_time - last_time) / 86400
         logging.info(f"用户 {item['traderPublicKey']} 今日买入 {sum}笔 今日第一笔和之前最后一笔交易时间差为 {time_diff} 天")
+        #走播报
+        # with ThreadPoolExecutor(max_workers=20) as nested_executor:
+        #     if  time_diff>=3:
+        #         nested_executor.submit(check_user_balance, item,f"老鲸鱼钱包")  #老鲸鱼
+        #         nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
+        #     elif time_diff>=2:#两天以上老鲸鱼 老鲸鱼暴击               
+        #         nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
+        #     elif time_diff>=1 and sum == 0:#一天以上老鲸鱼 老鲸鱼暴击
+        #         nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
 
         #走播报
-        with ThreadPoolExecutor(max_workers=2) as nested_executor:  
+        with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=2:#两天以上老鲸鱼 老鲸鱼暴击
                 nested_executor.submit(check_user_balance, item,f"{math.floor(time_diff)}天老鲸鱼")  #老鲸鱼
-                nested_executor.submit(check_user_profit, item,f"{math.floor(time_diff)}天老鲸鱼暴击")  #老鲸鱼暴击
+                nested_executor.submit(check_user_wallet, item,f"{math.floor(time_diff)}天老鲸鱼暴击")  #老鲸鱼暴击
             elif time_diff>=1 and  sum == 0:#一天以上老鲸鱼 老鲸鱼暴击
                 nested_executor.submit(check_user_balance, item,f"{math.floor(time_diff)}天老鲸鱼")  #老鲸鱼
-                nested_executor.submit(check_user_profit, item,f"{math.floor(time_diff)}天老鲸鱼暴击")  #老鲸鱼暴击
+                nested_executor.submit(check_user_wallet, item,f"{math.floor(time_diff)}天老鲸鱼暴击")  #老鲸鱼暴击
     except Exception as e:
-         print("捕捉到的异常:", e)
+         print("用户交易记录的异常:", e)
 
 
 # 请求用户的账户余额并通知 老鲸鱼播报
@@ -327,23 +365,53 @@ def check_user_balance(item,title):
     except Exception as e:
             logging.error(f"获取{item['traderPublicKey']}的余额出错{e}")
 # 请求用户的营收并通知 老金鱼暴击
-def check_user_profit(item,title):
-    logging.info(f"请求用户盈收: {item['traderPublicKey']}")
-    data = fetch_user_total_profit(item['traderPublicKey'])
-    if data:
-        total_profit = data.get('total_profit',0)
-        logging.info(f"用户 {item['traderPublicKey']} 总盈收: {total_profit} usdt")
-        if total_profit >= TOTAL_PROFIT:#总营收大于预设值
-            logging.info(f"用户 {item['traderPublicKey']} 总盈收: {total_profit} usdt > {TOTAL_PROFIT}")
-            data["traderPublicKey"] = item['traderPublicKey']
-            data["title"] = title
-            data['mint'] = item['mint']
-            data['amount'] = item['amount']
-            data['signature'] = item['signature']
-            send_telegram_notification(tg_message_html_2(data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI])
-            #保存通知过的
-            redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(data))
+# def check_user_profit(item,title):
+#     logging.info(f"请求用户盈收: {item['traderPublicKey']}")
+#     data = fetch_user_total_profit(item['traderPublicKey'])
+#     if data:
+#         total_profit = data.get('total_profit',0)
+#         logging.info(f"用户 {item['traderPublicKey']} 总盈收: {total_profit} usdt")
+#         if total_profit >= TOTAL_PROFIT:#总营收大于预设值
+#             logging.info(f"用户 {item['traderPublicKey']} 总盈收: {total_profit} usdt > {TOTAL_PROFIT}")
+#             data["traderPublicKey"] = item['traderPublicKey']
+#             data["title"] = title
+#             data['mint'] = item['mint']
+#             data['amount'] = item['amount']
+#             data['signature'] = item['signature']
+#             send_telegram_notification(tg_message_html_2(data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI])
+#             #保存通知过的
+#             redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(data))
 
+# 请求用户的卖出单 老金鱼暴击
+def check_user_wallet(item,title):
+    logging.info(f"请求老鲸鱼暴击 {item['mint']}")
+    logging.error(f"代币 {item['mint']} 的市值:{item['marketCapSol'] * sol_price['price']}")
+    try:
+        if (item['marketCapSol'] * sol_price['price']) < MIN_TOKEN_CAP:#老鲸鱼暴击市值小于设定值的，直接排除
+            logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol'] * sol_price['price']} sol单价:{sol_price['price']} 小于设定最小值 {MIN_TOKEN_CAP}")
+            return
+        data = fetch_user_wallet_holdings(item['traderPublicKey'])
+        if not data:
+            logging.info(f"用户 {item['traderPublicKey']} 代币盈亏data是空")
+            return
+        holdings = data.get('holdings',[])
+        if not holdings:
+            logging.info(f"用户 {item['traderPublicKey']} 代币盈亏holdings是空")
+            return 
+        hold_data = holdings[0]
+        if(float(hold_data['total_profit']) >= TOTAL_PROFIT):
+            hold_data["traderPublicKey"] = item['traderPublicKey']
+            hold_data["title"] = title
+            hold_data['mint'] = item['mint']
+            hold_data['amount'] = item['amount']
+            hold_data['signature'] = item['signature']
+            hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI])
+            # #保存通知过的
+            redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(hold_data))
+    except Exception as e:
+        logging.error("捕捉到的异常:", e)
+        
 # 查看用户一段时间的交易记录
 def fetch_user_transactions(start_time,end_time,item):
     url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={start_time}&block_time[]={end_time}&page=1&page_size=20&sort_by=block_time&sort_order=desc"
@@ -371,31 +439,15 @@ def send_telegram_notification(message,bot):
         logging.error(f"发送通知时出错: {e}")
 
 #请求代币元信息
-def check_tokens_to_redis(token):
+def fetch_token_market_cap(token):
     url = f"https://pro-api.solscan.io/v2.0/token/meta?address={token}"
     response = requests.get(url,headers=headers)
     if response.status_code == 200:
         response_data = response.json()
         data = response_data.get('data',{})
-        market_cap = data.get('market_cap',0) or 0
-        logging.info(f"token {token} market_cap {market_cap}")
-        try:
-            if market_cap > MAX_TOKEN_CAP or  market_cap == 0:# 再范围之外移除监听
-                if token in subscriptions:
-                    del subscriptions[token]
-                logging.info(f"token {token} market_cap {market_cap:.4f} 超出范围 正在移除监听")
-                # 取消订阅
-                if subscriptions and ws:
-                    payload = {
-                        "method": "unsubscribeTokenTrade",
-                        "keys": [token]  
-                    }
-                    ws.send(json.dumps(payload))
-        except Exception as e:
-            logging.error(f"移除监听出错了: {token}  {e}")
-
-    else:
-        logging.error(f"{token}获取元信息失败 : {response.status_code}")
+        return data.get('market_cap',0)
+    logging.error(f"{token}获取元信息失败 : {response.status_code}")
+    return 0
 
 #请求用户的总营收
 def fetch_user_total_profit(address):
@@ -407,6 +459,17 @@ def fetch_user_total_profit(address):
         return res.json()['data']
     logging.error(f"用户 {address} 获取总营收失败 {res.text}")
     return {}
+#请求用户的代币盈亏情况 之请求一条，按降序排列，这一条就是金额最大的
+def fetch_user_wallet_holdings(address):
+    proxies = {
+        "https":proxy_expired.get("proxy")
+    }
+    res = gmgn_api.getWalletHoldings(walletAddress=address,params="limit=1&orderby=total_profit&direction=desc&showsmall=true&sellout=true&tx30d=true",proxies=proxies)
+    if res.status_code == 200:
+        return res.json()['data']
+    logging.error(f"用户 {address} 获取代币盈亏失败 {res.text}")
+    return {}
+
 #老鲸鱼的模版
 def tg_message_html_1(item):
  msg = f'''
@@ -433,7 +496,7 @@ def tg_message_html_1(item):
                         '''    
  return msg
 
-#老鲸鱼暴击的模版
+#老鲸鱼暴击的模版2
 def tg_message_html_2(info):
     msg = '''
 <b>🐋🐋🐋🐋{title}🐋🐋🐋🐋</b>
@@ -472,7 +535,40 @@ def tg_message_html_2(info):
         realized_profit_7d=float(info.get("realized_profit_7d", 0)),
     )
     return msg
+#老鲸鱼暴击的模版
+def tg_message_html_3(info):
+    msg = '''
+<b>💥💥💥💥{title}💥💥💥💥</b>
 
+<b>token:</b>
+<code>{mint}</code>
+
+<b>购买的老钱包:</b>
+<code>{traderPublicKey}</code>
+
+<b>购买金额:{amount:.4f} SOL</b>
+<b>token市值:{market_cap:.4f} USDT</b>
+<b>单币最高盈利:{total_profit:.4f} USDT</b>
+
+<b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}">详情</a></b>
+<b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKey}">详情</a></b>
+<b>交易详情:<a href="https://solscan.io/tx/{signature}">查看</a></b>
+
+📈<b>查看K线: <a href="https://pump.fun/coin/{mint}">PUMP</a></b> <b><a href="https://gmgn.ai/sol/token/{mint}">GMGN</a></b>
+
+<a href="https://t.me/pepeboost_sol_bot?start=8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>PEPE一键买入</b></a>
+
+<a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
+    '''.format(
+        mint = info.get("mint"),
+        title=info.get("title"),
+        amount=float(info.get('amount',0)),
+        total_profit = float(info.get('total_profit',0)),
+        market_cap = float(info.get('market_cap',0)),
+        signature = info.get('signature'),
+        traderPublicKey=info.get("traderPublicKey"),
+    )
+    return msg
 
 # 主程序
 async def main():
@@ -484,6 +580,7 @@ async def main():
 
     # 启动载入redis数据任务
     #redis_data_load = asyncio.create_task(load_redis_data())
+
 
     # 启动处理队列的任务
     process_task = asyncio.create_task(process_message())

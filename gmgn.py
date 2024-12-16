@@ -237,3 +237,50 @@ class gmgn:
         # 设置代理
         proxies = proxies
         return self.session.get(url, headers=self.headers,proxy=proxies)
+    
+    def getWalletActivity(self, walletAddress: str = None, type: str = None,proxies:dict = None) -> dict:
+        """
+        Gets various information about a wallet address.
+
+        types - buy, sell - The Activitys of the wallet you're checking.
+        """
+
+        types = ["buy", "sell"]
+
+        if not walletAddress:
+            return "You must input a wallet address."
+        if not type or type not in types:
+            type = "buy"
+        
+        url = f"{self.BASE_URL}/v1/wallet_activity/sol?type={type}&wallet={walletAddress}&limit=100"
+        # 设置代理
+        proxies = proxies
+        return self.session.get(url, headers=self.headers,proxy=proxies)
+    
+    
+    def getWalletHoldings(self, walletAddress: str = None, params: str = None,proxies:dict = None) -> dict:
+        """
+        获取GMGN上 一个钱包历史的代币持仓情况，
+        """
+        url = "https://gmgn.ai/api"
+        if not walletAddress:
+            return "You must input a wallet address."
+        if not params:
+            return "You must input a params"
+        
+        url = f"{url}/v1/wallet_holdings/sol/{walletAddress}?{params}"
+        # 设置代理
+        proxies = proxies
+        return self.session.get(url, headers=self.headers,proxy=proxies)
+    
+    def get_gas_price_sol(self,proxies:dict = None) -> dict:
+        """
+        获取GMGN上 SOL的美元的单价
+        """
+        url = "https://gmgn.ai/api/v1/gas_price/sol"
+        # 设置代理
+        proxies = proxies
+        return self.session.get(url, headers=self.headers,proxy=proxies)
+    
+    
+    
