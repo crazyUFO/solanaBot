@@ -168,9 +168,10 @@ async def websocket_handler():
                     try:
                         message = json.loads(data)
                         if "txType" in message and message['txType'] == 'create':
-                            #在此验证redis中是否存在
-                            if redis_client.exists(f"{MINT_SUBSCRBED}{message['mint']}") == 0:
-                                redis_client.set(f"{MINT_SUBSCRBED}{message['mint']}",message['mint'])
+                            #写入redis加原子锁
+                            # 尝试获取锁（NX确保只有一个线程能设置）
+                            lock_acquired = redis_client.set(f"{MINT_SUBSCRBED}{message['mint']}", REDIS_LIST, nx=True, ex=2)  # 锁2秒自动过期
+                            if lock_acquired:
                                 await message_queue_1.put(message)  # 识别订单创建
                         elif "txType" in message and message["txType"] == "buy":
                             await message_queue_2.put(message)  # 买入单推送
