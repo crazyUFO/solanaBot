@@ -399,8 +399,8 @@ def check_user_wallet(item,title):
             logging.info(f"用户 {item['traderPublicKey']} 代币盈亏holdings是空")
             return 
         hold_data = holdings[0]
-        logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利 {hold_data['total_profit']} usdt")
-        if(float(hold_data['total_profit']) >= TOTAL_PROFIT):
+        logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt")
+        if(float(hold_data['realized_profit']) >= TOTAL_PROFIT):
             hold_data["traderPublicKey"] = item['traderPublicKey']
             hold_data["title"] = title
             hold_data['mint'] = item['mint']
@@ -465,7 +465,7 @@ def fetch_user_wallet_holdings(address):
     proxies = {
         "https":proxy_expired.get("proxy")
     }
-    res = gmgn_api.getWalletHoldings(walletAddress=address,params="limit=1&orderby=total_profit&direction=desc&showsmall=true&sellout=true&tx30d=true",proxies=proxies)
+    res = gmgn_api.getWalletHoldings(walletAddress=address,params="limit=1&orderby=realized_profit&direction=desc&showsmall=true&sellout=true&tx30d=true",proxies=proxies)
     if res.status_code == 200:
         return res.json()['data']
     logging.error(f"用户 {address} 获取代币盈亏失败 {res.text}")
@@ -549,7 +549,8 @@ def tg_message_html_3(info):
 
 <b>购买金额:{amount:.4f} SOL</b>
 <b>token市值:{market_cap:.4f} USDT</b>
-<b>单币最高盈利:{total_profit:.4f} USDT</b>
+<b>单币最高盈利:{realized_profit:.4f} USDT</b>
+<b>盈利百分比:{realized_profit:.1f} %</b>
 
 <b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}">详情</a></b>
 <b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKey}">详情</a></b>
@@ -564,7 +565,8 @@ def tg_message_html_3(info):
         mint = info.get("mint"),
         title=info.get("title"),
         amount=float(info.get('amount',0)),
-        total_profit = float(info.get('total_profit',0)),
+        realized_profit = float(info.get('realized_profit',0)),
+        realized_pnl = float(info.get('realized_pnl',0)) * 100,#盈利百分比
         market_cap = float(info.get('market_cap',0)),
         signature = info.get('signature'),
         traderPublicKey=info.get("traderPublicKey"),
