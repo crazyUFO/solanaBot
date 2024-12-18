@@ -303,8 +303,8 @@ def check_user_transactions(item):
         first_time = now.timestamp() #这次交易的时间
         for value in transactions_data: #有几种情况 1.用户今天只交易了一条没有以往的数据 first_time有值 last_time 是none  sum <= 10 2.用户今日数据超标 first有值 last_time 是none sum > 10 3.今日用户没有交易 但是有以往的数据 first_time 是none last_time 是 有值的 sum是0
             if value['block_time'] - today > 0:#区块链时间减去今天0点的时间大于0 代表今天之内交易的
-                routers = value.get('routers',{})
-                if routers and "token1" in routers and (routers['token1'] =="So11111111111111111111111111111111111111112" or routers['token1'] =="So11111111111111111111111111111111111111111"): #只计算买入
+                routers = value.get('routers',{})   #token1 的值 1.sol原生代币 2.sol的原始币 3.usdc
+                if routers and "token1" in routers and (routers['token1'] =="So11111111111111111111111111111111111111112" or routers['token1'] =="So11111111111111111111111111111111111111111" or routers['token1'] == 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'): #只计算买入 
                     sum=sum+1
             else:
                 last_time = value['block_time'] # 当区块链时间有一个是今天以外的时间，将这个对象取出并结束循环
