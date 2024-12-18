@@ -334,11 +334,11 @@ def check_user_transactions(item):
         #走播报
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=2:#两天以上老鲸鱼 老鲸鱼暴击
-                nested_executor.submit(check_user_balance, item,f"{math.floor(time_diff)}天老鲸鱼")  #老鲸鱼
-                nested_executor.submit(check_user_wallet, item,f"{math.floor(time_diff)}天老鲸鱼暴击")  #老鲸鱼暴击
+                nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
+                nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
             elif time_diff>=1 and  sum == 0:#一天以上老鲸鱼 老鲸鱼暴击
-                nested_executor.submit(check_user_balance, item,f"{math.floor(time_diff)}天老鲸鱼")  #老鲸鱼
-                nested_executor.submit(check_user_wallet, item,f"{math.floor(time_diff)}天老鲸鱼暴击")  #老鲸鱼暴击
+                nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
+                nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
     except Exception as e:
          print("用户交易记录的异常:", e)
 
