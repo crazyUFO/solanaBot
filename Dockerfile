@@ -8,7 +8,7 @@ WORKDIR /app
 COPY client_child.py /app/
 COPY config.ini /app/
 COPY gmgn.py /app/
-COPY manager.py /app/
+COPY portfolivalueCalculator.py /app/
 
 # 安装任何所需的依赖包
 # 如果有 requirements.txt 文件，可以将其复制并安装依赖
