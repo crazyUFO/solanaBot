@@ -1,4 +1,3 @@
-####2号脚本采用redis链接方法，从redis中遍历数据取出进行订阅操作
 import asyncio
 import redis.client
 import websockets
@@ -160,12 +159,13 @@ async def cleanup_subscriptions():
                 await ws.send(json.dumps(payload))
                 await asyncio.sleep(2)
         logging.error(f"----目前进程播报----")
-        logging.error(f"----创建监听队列{message_queue_1.qsize()} 条----")
-        logging.error(f"----数据处理队列{message_queue_2.qsize()} 条----")
+        logging.error(f"----创建监听队列 {message_queue_1.qsize()} 条----")
+        logging.error(f"----数据处理队列 {message_queue_2.qsize()} 条----")
+        logging.error(f"----数据线程占用 {len(executor._threads)} 条----")
         logging.error(f"----目前代币数量 {len(subscriptions)}----")
         logging.error(f"----本次取消数量 {len(expired_addresses)}----")
         logging.error(f"----当前使用代理 {proxy_expired['proxy']}----")
-        logging.error(f"----当前SOL美刀 {sol_price['price']}----")
+        logging.error(f"----当前SOL/美刀 {sol_price['price']}----")
         logging.error(f"----进程播报结束")
         await asyncio.sleep(60)  # 每过1小时检查一次
 
@@ -189,17 +189,29 @@ async def websocket_handler():
                     data = await ws.recv()  # 等待并接收新的消息
                     try:
                         message = json.loads(data)
-                        if "txType" in message and message['txType'] == 'create':
-                            #写入redis加原子锁
-                            # 尝试获取锁（NX确保只有一个线程能设置）
-                            lock_acquired = redis_client.set(f"{MINT_SUBSCRBED}{message['mint']}", REDIS_LIST, nx=True, ex=2)  # 锁2秒自动过期
-                            if lock_acquired:
-                                await message_queue_1.put(message)  # 识别订单创建
-                        elif "txType" in message and message["txType"] == "buy":
-                            await message_queue_2.put(message)  # 买入单推送
+                        if "txType" in message:
+                            txType = message["txType"]
+                            mint = message['mint']
+                            amount = message['solAmount']
+                            if txType == 'create':
+                                #写入redis加原子锁
+                                # 尝试获取锁（NX确保只有一个线程能设置）
+                                lock_acquired = redis_client.set(f"{MINT_SUBSCRBED}{mint}", REDIS_LIST, nx=True, ex=2)  # 锁2秒自动过期
+                                if lock_acquired:
+                                    await message_queue_1.put(message)  # 识别订单创建
+                            elif txType == "buy":
+                                #加入最后活跃时间 买入算
+                                if mint in subscriptions:
+                                    subscriptions[mint] = time.time()
+                                #扫描符合要求的订单
+                                if amount >= SINGLE_SOL:
+                                    message['amount'] = amount
+                                    logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
+                                    await message_queue_2.put(message)  # 买入单推送
+                                else:
+                                    logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
                         else:
-                            pass  # 处理其他消息类型（可根据需要添加）
-
+                            pass  
                     except json.JSONDecodeError:
                         logging.error(f"消息解析失败: {data}")
 
@@ -242,13 +254,9 @@ async def transactions_message():
         # 从队列中获取消息并处理
         data = await message_queue_2.get()
         try:
-            #加入最后活跃时间
-            if data['mint'] in subscriptions:
-                subscriptions[data['mint']] = time.time()
-                #logging.info(f"代币 {data['mint']} 活跃度刷新 {subscriptions[data['mint']]}")
             check = redis_client.exists(f"{ADDRESS_EXPIRY}{data['traderPublicKey']}")
             if not check: #排除了那些频繁交易的 减少API输出
-                executor.submit(start, data)
+                executor.submit(check_user_transactions, data)
             else:
                 logging.info(f"用户 {data['traderPublicKey']} 已被redis排除24小时")
         except Exception as e:
@@ -359,7 +367,8 @@ def check_user_balance(item,title):
                     item['title'] = title
                     item['sol'] = sol
                     item['total_balance'] = total_balance
-                    send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID])
+                    send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
+
                     #保存通知过的
                     redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
     except Exception as e:
@@ -384,7 +393,7 @@ def check_user_balance(item,title):
 
 # 请求用户的卖出单 老金鱼暴击
 def check_user_wallet(item,title):
-    logging.info(f"请求老鲸鱼暴击 {item['mint']}")
+    logging.info(f"用户 {item['traderPublicKey']} 请求老鲸鱼暴击 {item['mint']}")
     logging.error(f"代币 {item['mint']} 的市值:{item['marketCapSol'] * sol_price['price']}")
     try:
         if (item['marketCapSol'] * sol_price['price']) < MIN_TOKEN_CAP:#老鲸鱼暴击市值小于设定值的，直接排除
@@ -407,7 +416,7 @@ def check_user_wallet(item,title):
             hold_data['amount'] = item['amount']
             hold_data['signature'] = item['signature']
             hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI])
+            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
             # #保存通知过的
             redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(hold_data))
     except Exception as e:
@@ -422,7 +431,7 @@ def fetch_user_transactions(start_time,end_time,item):
         return response_data.get('data', [])
     return []
 # 发送 Telegram 消息
-def send_telegram_notification(message,bot):
+def send_telegram_notification(message,bot,tag):
     url = f"https://api.telegram.org/bot{bot[0]}/sendMessage"
     payload = {
         "chat_id": bot[1],
@@ -433,22 +442,11 @@ def send_telegram_notification(message,bot):
         response = requests.post(url, data=payload)
         if response.status_code == 200:
             
-            logging.info("通知发送成功！")
+            logging.info(f"{tag} 通知发送成功！")
         else:
-            logging.error(f"通知发送失败: {response.json()}")
+            logging.error(f"{tag} 通知发送失败: {response.json()}")
     except Exception as e:
-        logging.error(f"发送通知时出错: {e}")
-
-#请求代币元信息
-def fetch_token_market_cap(token):
-    url = f"https://pro-api.solscan.io/v2.0/token/meta?address={token}"
-    response = requests.get(url,headers=headers)
-    if response.status_code == 200:
-        response_data = response.json()
-        data = response_data.get('data',{})
-        return data.get('market_cap',0)
-    logging.error(f"{token}获取元信息失败 : {response.status_code}")
-    return 0
+        logging.error(f"{tag} 发送通知时出错: {e}")
 
 #请求用户的总营收
 def fetch_user_total_profit(address):
