@@ -1,10 +1,4 @@
 #!/bin/bash
-# 读取配置文件
-INI_FILE="config.ini"
-
-# 获取 [LOG] 部分的 NAME 和 DIR 配置，忽视空格
-name=$(awk -F '=' '/^\[LOG\]/ {f=1} f && $1~"NAME" {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$INI_FILE")
-dir=$(awk -F '=' '/^\[LOG\]/ {f=1} f && $1~"DIR" {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$INI_FILE")
 # 获取当前脚本所在目录
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
@@ -60,17 +54,7 @@ echo "可以使用 'tail -f /dev/null' 来查看后台输出"
 
 # 退出虚拟环境
 deactivate
-echo "等待 5 秒..."
-sleep 5
-# 打印日志
-LOG_FILE="$SCRIPT_DIR/$dir/$name"
+echo "打印日志..."
+tail -f logs/app.log
 
-# 检查日志文件是否存在
-if [ ! -f "$LOG_FILE" ]; then
-    echo "日志文件不存在: $LOG_FILE"
-    exit 1
-else
-    echo "启动自动打印日志..."
-    tail -f "$LOG_FILE"
-fi
 
