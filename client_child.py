@@ -378,7 +378,7 @@ def check_user_balance(item,title):
             else:
                 logging.info(f"代币 {item['mint']} 已经通知过了")
     except Exception as e:
-            logging.error(f"获取{item['traderPublicKey']}的余额出错{e}")
+            logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
 
 # 请求用户的卖出单 老金鱼暴击
 def check_user_wallet(item,title):
@@ -608,7 +608,8 @@ def send_to_trader(mint,type):
         logging.info(f"代币 {mint} 发送交易失败")
 #查看是mint是否已经播报过了
 def check_redis_key(item):
-    return redis_client.set(f"{MINT_SUCCESS}{item['mint']}", item, nx=True, ex=86400)
+    print(item)
+    return redis_client.set(f"{MINT_SUCCESS}{item['mint']}", json.dumps(item), nx=True, ex=86400)
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
