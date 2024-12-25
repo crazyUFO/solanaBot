@@ -566,14 +566,20 @@ def tg_message_html_3(info):
 #通知交易端
 def send_to_trader(mint,type):
     if not CALL_BACK_URL:
+        logging.info(f"回调地址没有填写")
         return 
     try:
         params = {
-            'ca':mint,
-            'type_id':type
-        }
-        response = requests.post(f"{CALL_BACK_URL}/api/tasks",data=params)  # 设置超时防止请求挂起
-        response.raise_for_status()  # 如果返回的状态码不是 200，会抛出异常
+            'ca': mint,
+            'type_id': type
+        }     
+        # 设置 headers，确保发送的内容类型为 JSON
+        headers = {'Content-Type': 'application/json'}
+        # 使用 json= 参数，requests 会自动处理将字典转换为 JSON 格式并设置 Content-Type
+        response = requests.post(CALL_BACK_URL, json=params, headers=headers)  # 设置超时为 10 秒
+        logging.info(f"代币 {mint} 已经发送到交易端")
+        # 如果响应状态码不是 200，会抛出异常
+        response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logging.info(f"代币 {mint} 发送交易失败")
 # 主程序
