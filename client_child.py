@@ -6,7 +6,7 @@ import logging
 import requests  # 用于发送 Telegram API 请求
 import os
 import math
-from portfolivalueCalculator import PortfolioValueCalculator
+from portfolivalueCalculatorJUP import PortfolioValueCalculatorJUP
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import redis
@@ -14,34 +14,25 @@ import time
 import configparser
 from cloudbypass import Proxy
 from gmgn import gmgn
-gmgn_api = gmgn()
 # 创建配置解析器对象
 config = configparser.ConfigParser()
 # 读取INI文件时指定编码
 with open('config.ini', 'r', encoding='utf-8') as f:
     config.read_file(f)
 # 读取指定的参数
+DOMAIN = config.get('SERVER', 'DOMAIN') #服务器域
+SERVER_ID = config.get('SERVER', 'SERVER_ID') #本脚本ID
 MAX_WORKERS = config.getint('General', 'MAX_WORKERS') #最大线程数
-SINGLE_SOL = config.getfloat('General', 'SINGLE_SOL')  # 单次买入阈值
-DAY_NUM = config.getint('General', 'DAY_NUM') # 间隔天数
-BLANCE = config.getint('General', 'BLANCE')  # 账户余额阈值
-TOKEN_BALANCE = config.getint('General', 'TOKEN_BALANCE') #单位是美刀
-MIN_TOKEN_CAP = config.getint('General', 'MIN_TOKEN_CAP') #市值最小 单位是美刀
-MAX_TOKEN_CAP = config.getint('General', 'MAX_TOKEN_CAP') #市值最大 单位是美刀
 TELEGRAM_BOT_TOKEN = config.get('TELEGRAM', 'TELEGRAM_BOT_TOKEN')  # Telegram 机器人的 API Token 老鲸鱼
 TELEGRAM_CHAT_ID = config.get('TELEGRAM', 'TELEGRAM_CHAT_ID')  # 你的 Telegram 用户或群组 ID  老鲸鱼
 TELEGRAM_BOT_TOKEN_BAOJI = config.get('TELEGRAM', 'TELEGRAM_BOT_TOKEN_BAOJI')  # Telegram 机器人的 API Token   暴击的
 TELEGRAM_CHAT_ID_BAOJI = config.get('TELEGRAM', 'TELEGRAM_CHAT_ID_BAOJI')  # 你的 Telegram 用户或群组 ID 暴击的
-HELIUS_API_KEY = config.get('General', 'HELIUS_API_KEY')#HELIUS API KEY
 REDIS_HOST = config.get('REDIS', 'REDIS_HOST') #本地
 REDIS_PORT =  config.getint('REDIS', 'REDIS_PORT')
 REDIS_PWD = config.get('REDIS', 'REDIS_PWD')
 REDIS_DB = config.getint('REDIS', 'REDIS_DB')
 REDIS_LIST = config.get('REDIS', 'REDIS_LIST')
-TOKEN = config.get('General', 'SOLSCAN_TOKEN')
 WS_URL = config.get('General', 'WS_URL') # WebSocket 地址
-TOKEN_EXPIRY = 60 * config.getint('General', 'TOKEN_EXPIRY') # 筛选地址活跃度为10分钟活跃
-TOTAL_PROFIT = config.getint('BAOJI', 'TOTAL_PROFIT') #老鲸鱼暴击播报限制
 # 日志文件夹和文件名
 LOG_DIR = config.get('LOG', 'DIR')
 LOG_NAME = config.get('LOG', 'NAME')
@@ -51,38 +42,25 @@ ADDRESS_SUCCESS_BAOJI = "success_baoji:"#存放播报的 暴击
 ADDRESS_EXPIRY = "expiry:" #今日交易超限制，新账号，这种的就直接锁住
 # 创建线程池执行器
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
-# 请求头
-headers = {
-    "token": TOKEN
-}
 
-
-# 确保日志目录存在
+# 初始化日志
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
-# 日志文件路径
 log_filename = os.path.join(LOG_DIR, LOG_NAME)
-
-# 创建一个 FileHandler 直接写入一个日志文件
-handler = logging.FileHandler(log_filename, encoding="utf-8")
-
-# 设置日志格式
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-
-# 配置日志记录器
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_filename, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)  # 设置日志记录器的最低级别
-
-# 添加日志处理器
-logger.addHandler(handler)
-logger.addHandler(logging.StreamHandler())  # 输出到控制台
-
-# 只使用一个配置来处理日志：logger 处理所有输出
 logger.info("日志已启动")
 
-# 初始化 Redis
+# 初始化 Redis 连接
+logger.info("初始化 Redis")
 redis_client = redis.StrictRedis(
     host=REDIS_HOST,
     port=REDIS_PORT,
@@ -90,23 +68,56 @@ redis_client = redis.StrictRedis(
     db=REDIS_DB,
     decode_responses=True
 )
-logger.info("初始化 Redis")
-message_queue_1 = asyncio.Queue()  # 处理 WS队列监听
-message_queue_2 = asyncio.Queue()  # 处理 分发线程任务
-subscriptions = {}# 存储未打满10W也不低于1W美金的token
-#代理相关
-proxy = Proxy("81689111-dat:toeargna")
-proxy_expired = {
-    "create_time":time.time(),
-    "proxy":str(proxy.copy().set_expire(60 * 10))
-}
 
-ws = None# WebSocket 连接
-# 事件标记，表示 WebSocket 已连接
+# 初始化 WebSocket 和代理
+ws = None
 ws_initialized_event = asyncio.Event()
+message_queue_1 = asyncio.Queue()
+message_queue_2 = asyncio.Queue()
 
-#十分钟轮询一次当前sol的价格
-def get_sol_for_usdt():
+proxy = Proxy("81689111-dat:toeargna")
+proxy_expired = {"create_time": time.time(), "proxy": str(proxy.copy().set_expire(60 * 10))}
+
+# 初始化全局变量用于订阅和价格管理
+subscriptions = {}
+sol_price = {"create_time": None, "price": 0}
+
+# 初始化 gmgn API
+gmgn_api = gmgn()
+
+# 全局请求头（初始为空）
+headers = {}
+
+# 获取远程配置函数
+async def fetch_config():
+    try:
+        response = requests.get(f"{DOMAIN}/api/nodes/{SERVER_ID}")
+        response.raise_for_status()  # 如果请求失败，则抛出异常
+        data = response.json()['data']
+        config = json.loads(data.get('settings'))
+        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL
+        TOKEN_EXPIRY = config.get("TOKEN_EXPIRY") * 60
+        SINGLE_SOL = config.get("SINGLE_SOL")
+        MIN_TOKEN_CAP = config.get("MIN_TOKEN_CAP")
+        MAX_TOKEN_CAP = config.get("MAX_TOKEN_CAP")
+        TOTAL_PROFIT = config.get("TOTAL_PROFIT")
+        TOKEN_BALANCE = config.get("TOKEN_BALANCE")
+        HELIUS_API_KEY = config.get("HELIUS_API_KEY")
+        SOLSCAN_TOKEN = config.get("SOLSCAN_TOKEN")
+        DAY_NUM = config.get("DAY_NUM")
+        BLANCE = config.get("BLANCE")
+        CALL_BACK_URL = config.get("CALL_BACK_URL")
+        logging.info("配置加载成功")
+        # 配置加载完成后创建请求头
+        global headers
+        headers = {
+            "token": SOLSCAN_TOKEN
+        }
+    except requests.exceptions.RequestException as e:
+        logging.error(f"获取配置失败: {e}")
+        # 可以设置默认配置或者退出程序
+        exit(1)
+async def get_sol_for_usdt():
     proxies = {
         "https":proxy_expired.get("proxy")
     }
@@ -116,10 +127,6 @@ def get_sol_for_usdt():
         return  data.get('native_token_usd_price')
     return 0
 
-sol_price = {
-    "create_time":time.time(),
-    "price":get_sol_for_usdt()
-} #存放sol 比对 USDT的价格 十分钟请求一次
 async def cleanup_subscriptions():
     while True:
         await ws_initialized_event.wait()
@@ -131,10 +138,10 @@ async def cleanup_subscriptions():
             proxy_expired['create_time'] = current_time
             proxy_expired['proxy'] = str(proxy.copy().set_expire(60 * 10))
 
-        if current_time - sol_price.get("create_time") >= 60*5:
+        if not sol_price.get("create_time") or current_time - sol_price.get("create_time") >= 60*5:
             logging.info(f"更新SOL的价格")
             sol_price['create_time'] = current_time
-            sol_price['price'] = get_sol_for_usdt()
+            sol_price['price'] = await get_sol_for_usdt()
 
 
         # 遍历所有订阅，最后一次交易时间超时
@@ -162,10 +169,10 @@ async def cleanup_subscriptions():
         logging.error(f"----创建监听队列 {message_queue_1.qsize()} 条----")
         logging.error(f"----数据处理队列 {message_queue_2.qsize()} 条----")
         logging.error(f"----数据线程占用 {len(executor._threads)} 条----")
-        logging.error(f"----目前代币数量 {len(subscriptions)}----")
-        logging.error(f"----本次取消数量 {len(expired_addresses)}----")
-        logging.error(f"----当前使用代理 {proxy_expired['proxy']}----")
-        logging.error(f"----当前SOL/美刀 {sol_price['price']}----")
+        logging.error(f"----目前代币数量 {len(subscriptions)} 枚----")
+        logging.error(f"----本次取消数量 {len(expired_addresses)} 枚----")
+        logging.error(f"----当前使用代理 {proxy_expired['proxy']} ----")
+        logging.error(f"----当前SOL/美刀 {sol_price['price']} ----")
         logging.error(f"----进程播报结束")
         await asyncio.sleep(60)  # 每过1小时检查一次
 
@@ -208,8 +215,8 @@ async def websocket_handler():
                                     message['amount'] = amount
                                     logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
                                     await message_queue_2.put(message)  # 买入单推送
-                                else:
-                                    logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
+                                # else:
+                                #     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
                         else:
                             pass  
                     except json.JSONDecodeError:
@@ -341,7 +348,7 @@ def check_user_transactions(item):
 
         #走播报
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
-            if time_diff>=2:#两天以上老鲸鱼 老鲸鱼暴击
+            if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
                 nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
                 nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
             elif time_diff>=1 and  sum == 0:#一天以上老鲸鱼 老鲸鱼暴击
@@ -355,7 +362,7 @@ def check_user_transactions(item):
 def check_user_balance(item,title):
     try:
         logging.info(f"请求用户余额: {item['traderPublicKey']}")
-        portfolio_calculator = PortfolioValueCalculator(
+        portfolio_calculator = PortfolioValueCalculatorJUP(
             balances_api_key=HELIUS_API_KEY,
             account_address=item['traderPublicKey']
         )
@@ -364,32 +371,17 @@ def check_user_balance(item,title):
         logging.info(f"用户 {item['traderPublicKey']} tokens:{total_balance} sol:{sol}")
         #if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
         if total_balance >= TOKEN_BALANCE:
-                    item['title'] = title
-                    item['sol'] = sol
-                    item['total_balance'] = total_balance
-                    send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
+            #先通知交易端 #老鲸鱼
+            send_to_trader(item['mint'],1)
 
-                    #保存通知过的
-                    redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
+            item['title'] = title
+            item['sol'] = sol
+            item['total_balance'] = total_balance
+            send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
+            #保存通知过的
+            redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
     except Exception as e:
             logging.error(f"获取{item['traderPublicKey']}的余额出错{e}")
-# 请求用户的营收并通知 老金鱼暴击
-# def check_user_profit(item,title):
-#     logging.info(f"请求用户盈收: {item['traderPublicKey']}")
-#     data = fetch_user_total_profit(item['traderPublicKey'])
-#     if data:
-#         total_profit = data.get('total_profit',0)
-#         logging.info(f"用户 {item['traderPublicKey']} 总盈收: {total_profit} usdt")
-#         if total_profit >= TOTAL_PROFIT:#总营收大于预设值
-#             logging.info(f"用户 {item['traderPublicKey']} 总盈收: {total_profit} usdt > {TOTAL_PROFIT}")
-#             data["traderPublicKey"] = item['traderPublicKey']
-#             data["title"] = title
-#             data['mint'] = item['mint']
-#             data['amount'] = item['amount']
-#             data['signature'] = item['signature']
-#             send_telegram_notification(tg_message_html_2(data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI])
-#             #保存通知过的
-#             redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(data))
 
 # 请求用户的卖出单 老金鱼暴击
 def check_user_wallet(item,title):
@@ -410,6 +402,7 @@ def check_user_wallet(item,title):
         hold_data = holdings[0]
         logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt")
         if(float(hold_data['realized_profit']) >= TOTAL_PROFIT):
+            send_to_trader(item['mint'],2)
             hold_data["traderPublicKey"] = item['traderPublicKey']
             hold_data["title"] = title
             hold_data['mint'] = item['mint']
@@ -570,18 +563,23 @@ def tg_message_html_3(info):
         traderPublicKey=info.get("traderPublicKey"),
     )
     return msg
-
+#通知交易端
+def send_to_trader(mint,type):
+    if not CALL_BACK_URL:
+        return 
+    try:
+        params = {
+            'ca':mint,
+            'type_id':type
+        }
+        response = requests.post(f"{CALL_BACK_URL}/api/tasks",data=params)  # 设置超时防止请求挂起
+        response.raise_for_status()  # 如果返回的状态码不是 200，会抛出异常
+    except requests.exceptions.RequestException as e:
+        logging.info(f"代币 {mint} 发送交易失败")
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
     ws_task = asyncio.create_task(websocket_handler())
-
-    # 启动处理队列的任务
-   # redis_task = asyncio.create_task(listen_to_redis())
-
-    # 启动载入redis数据任务
-    #redis_data_load = asyncio.create_task(load_redis_data())
-
 
     # 启动处理队列的任务
     process_task = asyncio.create_task(process_message())
@@ -592,10 +590,10 @@ async def main():
     # 启动订阅清理任务
     cleanup_task = asyncio.create_task(cleanup_subscriptions())
 
-
+    # 读取配置
+    await fetch_config()
     # 等待任务完成
     await asyncio.gather(ws_task,process_task,transactions_task,cleanup_task)
-
 
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':
