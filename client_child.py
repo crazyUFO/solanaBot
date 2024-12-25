@@ -36,13 +36,17 @@ WS_URL = config.get('General', 'WS_URL') # WebSocket 地址
 # 日志文件夹和文件名
 LOG_DIR = config.get('LOG', 'DIR')
 LOG_NAME = config.get('LOG', 'NAME')
-MINT_SUBSCRBED = "mint_subscrbed:"#redis存放已经订阅过的地址 //去重
 MINT_SUCCESS = "mint_success:"#redis存放已经播报过的盘 //1小时释放
 ADDRESS_SUCCESS = "success:"#存放播报的 老鲸鱼
 ADDRESS_SUCCESS_BAOJI = "success_baoji:"#存放播报的 暴击
 ADDRESS_EXPIRY = "expiry:" #今日交易超限制，新账号，这种的就直接锁住
 # 创建线程池执行器
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+
+#redis 缓存查询的 代币 dev数据 去重数据 市值数据 
+MINT_SUBSCRBED = "mint_subscrbed:"#redis存放已经订阅过的地址 //去重
+MINT_DEV_DATA = "mint_dev_data:"#缓存10秒之内的dev数据不在请求
+ADDRESS_HOLDINGS_DATA = "address_holdings_data:"#缓存1天
 
 # 初始化日志
 if not os.path.exists(LOG_DIR):
@@ -454,36 +458,53 @@ def fetch_user_total_profit(address):
     return {}
 #请求用户的代币盈亏情况 之请求一条，按降序排列，这一条就是金额最大的
 def fetch_user_wallet_holdings(address):
-    proxies = {
-        "https":proxy_expired.get("proxy")
-    }
-    res = gmgn_api.getWalletHoldings(walletAddress=address,params="limit=1&orderby=realized_profit&direction=desc&showsmall=true&sellout=true&tx30d=true",proxies=proxies)
-    if res.status_code == 200:
-        return res.json()['data']
-    logging.error(f"用户 {address} 获取代币盈亏失败 {res.text}")
+    data = redis_client.get(f"{ADDRESS_HOLDINGS_DATA}{address}")
+
+    if data:
+        logging.info(f"用户 {address} 取出代币盈利缓存")
+        return json.loads(data)
+    else:
+        proxies = {
+            "https":proxy_expired.get("proxy")
+        }
+        res = gmgn_api.getWalletHoldings(walletAddress=address,params="limit=1&orderby=realized_profit&direction=desc&showsmall=true&sellout=true&tx30d=true",proxies=proxies)
+        if res.status_code == 200:
+            data = res.json()['data']
+            logging.info(f"用户 {address} 代币盈利已缓存")
+            redis_client.set(f"{ADDRESS_HOLDINGS_DATA}{address}",json.dumps(data),ex=86400)
+            return data
+        else:
+            logging.error(f"用户 {address} 获取代币盈亏失败 {res.text}")
     return {}
 #请求代币token的dev情况
 def fetch_mint_dev(item):
     mint = item['mint']
     traderPublicKey = item['traderPublicKey']
-    proxies = {
-        "https":proxy_expired.get("proxy")
-    }
-    res = gmgn_api.getTokenTrades(token=mint,params="limit=10&event=buy&maker=&tag[]=dev_team",proxies=proxies)
-    if res.status_code == 200:
-        data =  res.json()['data']['history']
-        for value in data:
-            if value['maker'] == traderPublicKey:
-                logging.error(f"用户 {traderPublicKey} 是代币 {mint} 的dev团队")
-                return True
-        sols = sum(record["quote_amount"] for record in data)
-        if sols>=10:
-            logging.error(f"代币 {mint} dev团队持仓 {sols} sol超过设置值")
-            return True
-        return False
+    res = redis_client.get(f"{MINT_DEV_DATA}{mint}")
+    data=[]
+    if res:
+        data = json.loads(res)
+        logging.info(f"代币 {mint} 取出dev缓存")
     else:
-        logging.error(f"代币 {mint} 获取dev情况失败 {res.text}")
-        return False
+        proxies = {
+            "https":proxy_expired.get("proxy")
+        }
+        res = gmgn_api.getTokenTrades(token=mint,params="limit=20&event=buy&maker=&tag[]=dev_team",proxies=proxies)
+        if res.status_code == 200:
+            data =  res.json()['data']['history']
+            logging.info(f"代币 {mint} dev已缓存")
+            redis_client.set(f"{MINT_DEV_DATA}{mint}",json.dumps(data),ex=10)
+        else:
+            logging.error(f"代币 {mint} 获取dev情况失败 {res.text}")
+    for value in data:
+        if "creator" in value['maker_token_tags'] and value['maker'] == traderPublicKey:
+            logging.error(f"用户 {traderPublicKey} 是代币 {mint} 的创建者")
+            return True
+        sols = sum(record["quote_amount"] for record in data)
+    if sols>=10:
+        logging.error(f"代币 {mint} dev团队持仓 {sols} sol超过设置值")
+        return True
+    return False
 
 
 #老鲸鱼的模版
@@ -608,7 +629,6 @@ def send_to_trader(mint,type):
         logging.info(f"代币 {mint} 发送交易失败")
 #查看是mint是否已经播报过了
 def check_redis_key(item):
-    print(item)
     return redis_client.set(f"{MINT_SUCCESS}{item['mint']}", json.dumps(item), nx=True, ex=86400)
 # 主程序
 async def main():
