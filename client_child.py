@@ -37,6 +37,7 @@ WS_URL = config.get('General', 'WS_URL') # WebSocket 地址
 LOG_DIR = config.get('LOG', 'DIR')
 LOG_NAME = config.get('LOG', 'NAME')
 MINT_SUBSCRBED = "mint_subscrbed:"#redis存放已经订阅过的地址 //去重
+MINT_SUCCESS = "mint_success:"#redis存放已经播报过的盘 //1小时释放
 ADDRESS_SUCCESS = "success:"#存放播报的 老鲸鱼
 ADDRESS_SUCCESS_BAOJI = "success_baoji:"#存放播报的 暴击
 ADDRESS_EXPIRY = "expiry:" #今日交易超限制，新账号，这种的就直接锁住
@@ -336,16 +337,9 @@ def check_user_transactions(item):
             return
         time_diff = (first_time - last_time) / 86400
         logging.info(f"用户 {item['traderPublicKey']} 今日买入 {sum}笔 今日第一笔和之前最后一笔交易时间差为 {time_diff} 天")
-        #走播报
-        # with ThreadPoolExecutor(max_workers=20) as nested_executor:
-        #     if  time_diff>=3:
-        #         nested_executor.submit(check_user_balance, item,f"老鲸鱼钱包")  #老鲸鱼
-        #         nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
-        #     elif time_diff>=2:#两天以上老鲸鱼 老鲸鱼暴击               
-        #         nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
-        #     elif time_diff>=1 and sum == 0:#一天以上老鲸鱼 老鲸鱼暴击
-        #         nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
 
+        if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号，加起来超过10个sol
+            return
         #走播报
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
@@ -372,14 +366,16 @@ def check_user_balance(item,title):
         #if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
         if total_balance >= TOKEN_BALANCE:
             #先通知交易端 #老鲸鱼
-            send_to_trader(item['mint'],1)
-
-            item['title'] = title
-            item['sol'] = sol
-            item['total_balance'] = total_balance
-            send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
-            #保存通知过的
-            redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
+            if check_redis_key(item):
+                send_to_trader(item['mint'],1)
+                item['title'] = title
+                item['sol'] = sol
+                item['total_balance'] = total_balance
+                send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
+                #保存通知过的
+                redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
+            else:
+                logging.info(f"代币 {item['mint']} 已经通知过了")
     except Exception as e:
             logging.error(f"获取{item['traderPublicKey']}的余额出错{e}")
 
@@ -402,16 +398,20 @@ def check_user_wallet(item,title):
         hold_data = holdings[0]
         logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt")
         if(float(hold_data['realized_profit']) >= TOTAL_PROFIT):
-            send_to_trader(item['mint'],2)
-            hold_data["traderPublicKey"] = item['traderPublicKey']
-            hold_data["title"] = title
-            hold_data['mint'] = item['mint']
-            hold_data['amount'] = item['amount']
-            hold_data['signature'] = item['signature']
-            hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
-            # #保存通知过的
-            redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(hold_data))
+            #先通知交易端 #老鲸鱼 暴击
+            if check_redis_key(item):
+                send_to_trader(item['mint'],2)
+                hold_data["traderPublicKey"] = item['traderPublicKey']
+                hold_data["title"] = title
+                hold_data['mint'] = item['mint']
+                hold_data['amount'] = item['amount']
+                hold_data['signature'] = item['signature']
+                hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+                send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
+                # #保存通知过的
+                redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(hold_data))
+            else:
+                logging.info(f"代币 {item['mint']} 已经通知过了")
     except Exception as e:
         logging.error("捕捉到的异常:", e)
         
@@ -461,6 +461,29 @@ def fetch_user_wallet_holdings(address):
         return res.json()['data']
     logging.error(f"用户 {address} 获取代币盈亏失败 {res.text}")
     return {}
+#请求代币token的dev情况
+def fetch_mint_dev(item):
+    mint = item['mint']
+    traderPublicKey = item['traderPublicKey']
+    proxies = {
+        "https":proxy_expired.get("proxy")
+    }
+    res = gmgn_api.getTokenTrades(token=mint,params="limit=10&event=buy&maker=&tag[]=dev_team",proxies=proxies)
+    if res.status_code == 200:
+        data =  res.json()['data']['history']
+        for value in data:
+            if value['maker'] == traderPublicKey:
+                logging.error(f"用户 {traderPublicKey} 是代币 {mint} 的dev团队")
+                return True
+        sols = sum(record["quote_amount"] for record in data)
+        if sols>=10:
+            logging.error(f"代币 {mint} dev团队持仓 {sols} sol超过设置值")
+            return True
+        return False
+    else:
+        logging.error(f"代币 {mint} 获取dev情况失败 {res.text}")
+        return False
+
 
 #老鲸鱼的模版
 def tg_message_html_1(item):
@@ -582,6 +605,9 @@ def send_to_trader(mint,type):
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logging.info(f"代币 {mint} 发送交易失败")
+#查看是mint是否已经播报过了
+def check_redis_key(item):
+    return redis_client.set(f"{MINT_SUCCESS}{item['mint']}", item, nx=True, ex=86400)
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
@@ -600,7 +626,7 @@ async def main():
     await fetch_config()
     # 等待任务完成
     await asyncio.gather(ws_task,process_task,transactions_task,cleanup_task)
-
+    
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':
     asyncio.run(main())

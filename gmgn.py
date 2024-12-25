@@ -282,5 +282,17 @@ class gmgn:
         proxies = proxies
         return self.session.get(url, headers=self.headers,proxy=proxies)
     
+    def getTokenTrades(self, token: str = None, params: str = None,proxies:dict = None) -> dict:
+        """
+        获取一个token的购买者列表
+        """
+        if not token:
+            return "You must input a token address."
+        
+        url = f"{self.BASE_URL}/v1/trades/sol/{token}?{params}"
+        # 设置代理
+        proxies = proxies
+        return self.session.get(url, headers=self.headers,proxy=proxies)
+    
     
     
