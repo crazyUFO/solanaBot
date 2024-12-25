@@ -341,6 +341,7 @@ def check_user_transactions(item):
         if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号，加起来超过10个sol
             return
         #走播报
+        logging.info(f"代币 {item['mint']} dev检测合格")
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
                 nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
