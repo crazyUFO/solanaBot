@@ -498,7 +498,7 @@ def fetch_mint_dev(item):
         if "creator" in value['maker_token_tags'] and value['maker'] == traderPublicKey:
             logging.error(f"用户 {traderPublicKey} 是代币 {mint} 的创建者")
             return True
-        sols = sum(record["quote_amount"] for record in data)
+    sols = sum(record["quote_amount"] for record in data)
     if sols>=10:
         logging.error(f"代币 {mint} dev团队持仓 {sols} sol超过设置值")
         return True
