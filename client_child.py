@@ -363,8 +363,8 @@ def check_user_balance(item,title):
     try:
         logging.info(f"请求用户余额: {item['traderPublicKey']}")
         data = fetch_user_tokens(item['traderPublicKey'])
-        total_balance = data.calculate_total_value()
-        sol = data.get_sol()
+        total_balance = data.get('total_balance')
+        sol = data.get('sol')
         logging.info(f"用户 {item['traderPublicKey']} tokens:{total_balance} sol:{sol}")
         #if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
         if total_balance >= TOKEN_BALANCE:
