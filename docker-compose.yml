@@ -1,7 +1,0 @@
-services:
-  python-client:
-    build: .
-    volumes:
-      - ./logs:/app/logs  # 将宿主机的 ./logs 目录挂载到容器中的 /app/logs 目录
-    command: python client_child.py  # 运行 Python 脚本
-    restart: unless-stopped  # 如果容器异常退出，自动重启
