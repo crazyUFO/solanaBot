@@ -1,6 +1,8 @@
 websockets
 tls_client
 cloudbypass
+flask
+waitress
 typing-extensions
 requests==2.28.1
 helius==0.0.3
