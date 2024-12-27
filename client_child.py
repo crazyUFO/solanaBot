@@ -221,10 +221,10 @@ async def websocket_handler():
                                     message['amount'] = amount
                                     logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
                                     await message_queue_2.put(message)  # 买入单推送
-                                # else:
-                                #     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
+                                else:
+                                    logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount} 不满足")
                         else:
-                            pass  
+                            logging.info(f"其他数据 {message}")  
                     except json.JSONDecodeError:
                         logging.error(f"消息解析失败: {data}")
 
