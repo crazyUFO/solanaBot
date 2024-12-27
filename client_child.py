@@ -205,7 +205,6 @@ async def websocket_handler():
                         if "txType" in message:
                             txType = message["txType"]
                             mint = message['mint']
-                            amount = message['solAmount']
                             if txType == 'create':
                                 #写入redis加原子锁
                                 # 尝试获取锁（NX确保只有一个线程能设置）
@@ -213,6 +212,11 @@ async def websocket_handler():
                                 if lock_acquired:
                                     await message_queue_1.put(message)  # 识别订单创建
                             elif txType == "buy":
+                                try:
+                                    amount = message['solAmount']
+                                except KeyError:
+                                    logging.error(f"下标solAmount {message}")
+                                    amount = 0
                                 #加入最后活跃时间 买入算
                                 if mint in subscriptions:
                                     subscriptions[mint] = time.time()
@@ -221,8 +225,8 @@ async def websocket_handler():
                                     message['amount'] = amount
                                     logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
                                     await message_queue_2.put(message)  # 买入单推送
-                                else:
-                                    logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount} 不满足")
+                                # else:
+                                #     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount} 不满足")
                         else:
                             logging.info(f"其他数据 {message}")  
                     except json.JSONDecodeError:
