@@ -13,7 +13,7 @@ if not os.path.exists(log_folder):
     os.makedirs(log_folder)
 
 # 配置日志输出格式和日志文件
-log_filename = os.path.join(log_folder, 'app.log')
+log_filename = os.path.join(log_folder, 'call_back.log')
 
 logging.basicConfig(
     level=logging.INFO,  # 设置日志级别
