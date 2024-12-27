@@ -515,7 +515,7 @@ def fetch_user_tokens(address):
     )
     data = {"total_balance":portfolio_calculator.calculate_total_value(),"sol":portfolio_calculator.get_sol()}
     logging.info(f"用户 {address} tokens sol 已缓存")
-    redis_client.set(f"{ADDRESS_TOKENS_DATA}{address}",data,ex=3600)
+    redis_client.set(f"{ADDRESS_TOKENS_DATA}{address}",json.dumps(data),ex=3600)
     return data
 
 #老鲸鱼的模版
