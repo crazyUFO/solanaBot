@@ -46,7 +46,8 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 #redis 缓存查询的 代币 dev数据 去重数据 市值数据 
 MINT_SUBSCRBED = "mint_subscrbed:"#redis存放已经订阅过的地址 //去重
 MINT_DEV_DATA = "mint_dev_data:"#缓存10秒之内的dev数据不在请求
-ADDRESS_HOLDINGS_DATA = "address_holdings_data:"#缓存1天
+ADDRESS_HOLDINGS_DATA = "address_holdings_data:"#用户单币盈利缓存1天
+ADDRESS_TOKENS_DATA = "address_tokens_data:" #用户tokens sol 余额 缓存1小时
 
 # 初始化日志
 if not os.path.exists(LOG_DIR):
@@ -361,12 +362,9 @@ def check_user_transactions(item):
 def check_user_balance(item,title):
     try:
         logging.info(f"请求用户余额: {item['traderPublicKey']}")
-        portfolio_calculator = PortfolioValueCalculatorJUP(
-            balances_api_key=HELIUS_API_KEY,
-            account_address=item['traderPublicKey']
-        )
-        total_balance = portfolio_calculator.calculate_total_value()
-        sol = portfolio_calculator.get_sol()
+        data = fetch_user_tokens(item['traderPublicKey'])
+        total_balance = data.calculate_total_value()
+        sol = data.get_sol()
         logging.info(f"用户 {item['traderPublicKey']} tokens:{total_balance} sol:{sol}")
         #if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
         if total_balance >= TOKEN_BALANCE:
@@ -505,7 +503,20 @@ def fetch_mint_dev(item):
         logging.error(f"代币 {mint} dev团队持仓 {sols} sol超过设置值")
         return True
     return False
-
+#请求用户的token和sol总和
+def fetch_user_tokens(address):
+    data = redis_client.get(f"{ADDRESS_TOKENS_DATA}{address}")
+    if data:
+        logging.info(f"用户 {address} 取出tokens sol 缓存")
+        return json.loads(data)
+    portfolio_calculator = PortfolioValueCalculatorJUP(
+        balances_api_key=HELIUS_API_KEY,
+        account_address=address
+    )
+    data = {"total_balance":portfolio_calculator.calculate_total_value(),"sol":portfolio_calculator.get_sol()}
+    logging.info(f"用户 {address} tokens sol 已缓存")
+    redis_client.set(f"{ADDRESS_TOKENS_DATA}{address}",data,ex=3600)
+    return data
 
 #老鲸鱼的模版
 def tg_message_html_1(item):
