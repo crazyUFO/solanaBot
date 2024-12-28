@@ -45,6 +45,7 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 #redis 缓存查询的 代币 dev数据 去重数据 市值数据 
 MINT_SUBSCRBED = "mint_subscrbed:"#redis存放已经订阅过的地址 //去重
+TXHASH_SUBSCRBED = "txhash_subscrbed:"#redis 按订单去重 原子锁
 MINT_DEV_DATA = "mint_dev_data:"#缓存10秒之内的dev数据不在请求
 ADDRESS_HOLDINGS_DATA = "address_holdings_data:"#用户单币盈利缓存1天
 ADDRESS_TOKENS_DATA = "address_tokens_data:" #用户tokens sol 余额 缓存1小时
@@ -206,11 +207,11 @@ async def websocket_handler():
                             txType = message["txType"]
                             mint = message['mint']
                             if txType == 'create':
-                                #写入redis加原子锁
+                                # 写入redis加原子锁
                                 # 尝试获取锁（NX确保只有一个线程能设置）
-                                lock_acquired = redis_client.set(f"{MINT_SUBSCRBED}{mint}", REDIS_LIST, nx=True, ex=2)  # 锁2秒自动过期
-                                if lock_acquired:
-                                    await message_queue_1.put(message)  # 识别订单创建
+                                # lock_acquired = redis_client.set(f"{MINT_SUBSCRBED}{mint}", REDIS_LIST, nx=True, ex=2)  # 锁5秒自动过期
+                                # if lock_acquired:
+                                await message_queue_1.put(message)  # 识别订单创建
                             elif txType == "buy":
                                 try:
                                     amount = message['solAmount']
@@ -222,9 +223,12 @@ async def websocket_handler():
                                     subscriptions[mint] = time.time()
                                 #扫描符合要求的订单
                                 if amount >= SINGLE_SOL:
-                                    message['amount'] = amount
-                                    logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
-                                    await message_queue_2.put(message)  # 买入单推送
+                                    lock_acquired = redis_client.set(f"{TXHASH_SUBSCRBED}{message["signature"]}","原子锁5秒", nx=True, ex=5)  # 锁5秒自动过期
+                                    if lock_acquired:
+                                        message['amount'] = amount
+                                        logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
+                                        transactions_message_no_list(message)
+                                    #await message_queue_2.put(message)  # 买入单推送
                                 # else:
                                 #     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount} 不满足")
                         else:
@@ -264,6 +268,14 @@ async def process_message():
                     logging.info(f"代币 {mint_address} 重复订阅")                
             except Exception as e:
                 logging.error(f"处理消息时出错1: {e}")
+
+#订单不走列队
+def transactions_message_no_list(data):
+    check = redis_client.exists(f"{ADDRESS_EXPIRY}{data['traderPublicKey']}")
+    if not check: #排除了那些频繁交易的 减少API输出
+        executor.submit(check_user_transactions, data)
+    else:
+        logging.info(f"用户 {data['traderPublicKey']} 已被redis排除24小时")
 
 #异步函数：从队列中获取交易者数据并处理
 async def transactions_message():
