@@ -223,7 +223,7 @@ async def websocket_handler():
                                     subscriptions[mint] = time.time()
                                 #扫描符合要求的订单
                                 if amount >= SINGLE_SOL:
-                                    lock_acquired = redis_client.set(f"{TXHASH_SUBSCRBED}{message["signature"]}","原子锁5秒", nx=True, ex=5)  # 锁5秒自动过期
+                                    lock_acquired = redis_client.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁5秒", nx=True, ex=5)  # 锁5秒自动过期
                                     if lock_acquired:
                                         message['amount'] = amount
                                         logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount}")
