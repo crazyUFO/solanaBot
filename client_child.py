@@ -94,11 +94,24 @@ gmgn_api = gmgn()
 
 # 全局请求头（初始为空）
 headers = {}
-
+async def redis_get_settings():
+    """监听 Redis 频道 `settings`，并处理接收到的消息"""
+    pubsub = redis_client.pubsub()
+    pubsub.subscribe('settings')
+    logging.info('redis_task 启动，监听 settings 频道')
+    # 使用 asyncio 监听 Redis 消息
+    while True:
+        message = await asyncio.to_thread(pubsub.get_message, timeout=1)
+        if message and message['type'] == 'message':
+            logging.info(f"接收到服务器推送的配置: {message['data']}")
+            data = json.loads(message['data'])
+            await fetch_config(server_id=data['id'])
+        # 为了避免过度占用 CPU，添加一个小的延迟
+        await asyncio.sleep(1)
 # 获取远程配置函数
-async def fetch_config():
+async def fetch_config(server_id = SERVER_ID):
     try:
-        response = requests.get(f"{DOMAIN}/api/nodes/{SERVER_ID}")
+        response = requests.get(f"{DOMAIN}/api/nodes/{server_id}")
         response.raise_for_status()  # 如果请求失败，则抛出异常
         data = response.json()['data']
         config = json.loads(data.get('settings'))
@@ -436,6 +449,7 @@ def check_user_wallet(item,title):
         
 # 查看用户一段时间的交易记录
 def fetch_user_transactions(start_time,end_time,item):
+    print(headers)
     url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={start_time}&block_time[]={end_time}&page=1&page_size=20&sort_by=block_time&sort_order=desc"
     response= requests.get(url,headers=headers)
     if response.status_code == 200:
@@ -660,6 +674,8 @@ def check_redis_key(item):
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
+    redis_task = asyncio.create_task(redis_get_settings())
+    # 启动 WebSocket 连接处理
     ws_task = asyncio.create_task(websocket_handler())
 
     # 启动处理队列的任务
@@ -674,7 +690,7 @@ async def main():
     # 读取配置
     await fetch_config()
     # 等待任务完成
-    await asyncio.gather(ws_task,process_task,transactions_task,cleanup_task)
+    await asyncio.gather(ws_task,process_task,transactions_task,cleanup_task,redis_task)
     
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':
