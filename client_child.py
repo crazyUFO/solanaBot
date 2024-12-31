@@ -589,7 +589,7 @@ def fetch_user_account_sol(address):
     if account_data and "sol" in account_data:
         logging.info(f"用户 {address} sol 缓存")
         return account_data  
-    response = requests.get("https://pro-api.solscan.io/v2.0/account/detail", headers=headers)
+    response = requests.get(f"https://pro-api.solscan.io/v2.0/account/detail?address={address}", headers=headers)
     if response.status_code == 200:
         response_data =  response.json().get('data')
         data = {"sol":response_data.get('lamports') / 10**9}
