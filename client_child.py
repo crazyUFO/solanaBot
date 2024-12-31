@@ -407,18 +407,9 @@ def check_user_transactions(item):
         logging.info(f"代币 {item['mint']} dev检测合格")
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
-                #这里12.31日更新，老鲸鱼和 暴击都需要看余额
-                logging.info(f"请求用户余额: {item['traderPublicKey']}")
-                data = fetch_user_tokens(item['traderPublicKey'])
-                item['balance'] = data
-
                 nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
                 nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
-            elif time_diff>=MIN_DAY_NUM and  sum == 0:#一天以上老鲸鱼 老鲸鱼暴击 改成了15小时就报
-                logging.info(f"请求用户余额: {item['traderPublicKey']}")
-                data = fetch_user_tokens(item['traderPublicKey'])
-                item['balance'] = data
-                
+            elif time_diff>=MIN_DAY_NUM and  sum == 0:#一天以上老鲸鱼 老鲸鱼暴击 改成了15小时就报               
                 nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
                 nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
     except Exception as e:
@@ -428,7 +419,7 @@ def check_user_transactions(item):
 # 请求用户的账户余额并通知 老鲸鱼播报
 def check_user_balance(item,title):
     try:
-        data = item['balance']
+        data = fetch_user_tokens(item['traderPublicKey'])
         total_balance = data.get('total_balance')
         sol = data.get('sol')
         logging.info(f"用户 {item['traderPublicKey']} tokens:{total_balance} sol:{sol}")
@@ -465,12 +456,17 @@ def check_user_wallet(item,title):
             logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TOTAL_PROFIT}")
             return
         #获取余额
-        balance_data = item['balance']
-        total_balance = balance_data.get('total_balance')
-        sol = balance_data.get('sol')
-        if (item['marketCapSol'] * sol_price['price']) < MIN_TOKEN_CAP  and total_balance < TOKEN_BALANCE and sol < BLANCE:#老鲸鱼暴击的条件 三个条件同时不满足 排除
-            logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {MIN_TOKEN_CAP} 用户 {item['traderPublicKey']} 余额 sol {sol} tokens {total_balance} 设定 {BLANCE} {TOKEN_BALANCE}")
-            return
+        if (item['marketCapSol'] * sol_price['price']) < MIN_TOKEN_CAP:#老鲸鱼暴击的条件 小于设定的市值时 
+            logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {MIN_TOKEN_CAP} 不满足")
+            balance_data = fetch_user_account_sol(item['traderPublicKey'])
+            sol = balance_data.get('sol')
+            if sol < BLANCE:
+                logging.error(f"用户 {item['traderPublicKey']} 余额 sol {sol} 设定 {BLANCE} 不满足")
+                data = fetch_user_tokens(item['traderPublicKey'])
+                total_balance = data.get('total_balance')
+                if total_balance < TOKEN_BALANCE:
+                    logging.error(f"用户 {item['traderPublicKey']} tokens 余额 {total_balance} 设定 {TOKEN_BALANCE} 不满足")
+                    return
         if check_redis_key(item):
             send_to_trader(item['mint'],2)
             hold_data["traderPublicKey"] = item['traderPublicKey']
@@ -575,7 +571,7 @@ def fetch_mint_dev(item):
 #请求用户的token和sol总和
 def fetch_user_tokens(address):
     data = redis_client.get(f"{ADDRESS_TOKENS_DATA}{address}")
-    if data:
+    if data and "total_balance" in data:
         logging.info(f"用户 {address} 取出tokens sol 缓存")
         return json.loads(data)
     portfolio_calculator = PortfolioValueCalculatorJUP(
@@ -586,6 +582,28 @@ def fetch_user_tokens(address):
     logging.info(f"用户 {address} tokens sol 已缓存")
     redis_client.set(f"{ADDRESS_TOKENS_DATA}{address}",json.dumps(data),ex=3600)
     return data
+#单独的sol取出接口
+def fetch_user_account_sol(address):
+    data = redis_client.get(f"{ADDRESS_TOKENS_DATA}{address}")
+    account_data = json.loads(data)
+    if account_data and "sol" in account_data:
+        logging.info(f"用户 {address} sol 缓存")
+        return account_data  
+    response = requests.get("https://pro-api.solscan.io/v2.0/account/detail", headers=headers)
+    if response.status_code == 200:
+        response_data =  response.json().get('data')
+        data = {"sol":response_data.get('lamports') / 10**9}
+        redis_client.set(f"{ADDRESS_TOKENS_DATA}{address}",json.dumps(data),ex=3600)
+        logging.info(f"用户 {address}  sol 余额已缓存")
+        return data
+    logging.info(f"用户 {address}  solana 余额接口调用失败了")
+    return {"sol":0}
+        
+
+
+
+
+
 
 #通知交易端
 def send_to_trader(mint,type):
