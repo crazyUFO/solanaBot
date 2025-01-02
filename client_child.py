@@ -14,7 +14,7 @@ import time
 import configparser
 from cloudbypass import Proxy
 from gmgn import gmgn
-from tg_htmls import tg_message_html_1,tg_message_html_3
+from tg_htmls import tg_message_html_1,tg_message_html_3, tg_message_html_4
 # 创建配置解析器对象
 config = configparser.ConfigParser()
 # 读取INI文件时指定编码
@@ -28,6 +28,8 @@ TELEGRAM_BOT_TOKEN = config.get('TELEGRAM', 'TELEGRAM_BOT_TOKEN')  # Telegram �
 TELEGRAM_CHAT_ID = config.get('TELEGRAM', 'TELEGRAM_CHAT_ID')  # 你的 Telegram 用户或群组 ID  老鲸鱼
 TELEGRAM_BOT_TOKEN_BAOJI = config.get('TELEGRAM', 'TELEGRAM_BOT_TOKEN_BAOJI')  # Telegram 机器人的 API Token   暴击的
 TELEGRAM_CHAT_ID_BAOJI = config.get('TELEGRAM', 'TELEGRAM_CHAT_ID_BAOJI')  # 你的 Telegram 用户或群组 ID 暴击的
+TELEGRAM_BOT_TOKEN_15DAYS = config.get('TELEGRAM', 'TELEGRAM_BOT_TOKEN_15DAYS')  # Telegram 机器人的 API Token   15day老钱包
+TELEGRAM_CHAT_ID_15DAYS = config.get('TELEGRAM', 'TELEGRAM_CHAT_ID_15DAYS')  # 你的 Telegram 用户或群组 ID 15day老钱包
 REDIS_HOST = config.get('REDIS', 'REDIS_HOST') #本地
 REDIS_PORT =  config.getint('REDIS', 'REDIS_PORT')
 REDIS_PWD = config.get('REDIS', 'REDIS_PWD')
@@ -50,8 +52,9 @@ TXHASH_SUBSCRBED = "txhash_subscrbed:"#redis 按订单去重 原子锁
 MINT_DEV_DATA = "mint_dev_data:"#缓存10秒之内的dev数据不在请求
 ADDRESS_HOLDINGS_DATA = "address_holdings_data:"#用户单币盈利缓存1天
 ADDRESS_TOKENS_DATA = "address_tokens_data:" #用户tokens sol 余额 缓存1小时
-
-
+#2025.1.2日更新增加新播报需求
+MINT_15DAYS_ADDRESS = "mint_15days_address:"
+mint_15days_address = {}
 # 初始化日志
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
@@ -254,7 +257,7 @@ async def websocket_handler():
                                         "market_cap_sol":message['marketCapSol']
                                     }
                                 #扫描符合要求的订单
-                                if amount >= SINGLE_SOL:
+                                if amount >= 0.3: ##2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
                                     lock_acquired = redis_client.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁5秒", nx=True, ex=5)  # 锁5秒自动过期
                                     if lock_acquired:
                                         message['amount'] = amount
@@ -315,7 +318,9 @@ async def process_message():
 def transactions_message_no_list(data):
     check = redis_client.exists(f"{ADDRESS_EXPIRY}{data['traderPublicKey']}")
     if not check: #排除了那些频繁交易的 减少API输出
-        executor.submit(check_user_transactions, data)
+        if data['amount'] >= SINGLE_SOL:
+            executor.submit(check_user_transactions, data)
+        executor.submit(check_account_tran, data)
     else:
         logging.info(f"用户 {data['traderPublicKey']} 已被redis排除 {MIN_DAY_NUM} 天")
 
@@ -357,6 +362,34 @@ def transactions_message_no_list(data):
 #     else:
 #         logging.error(f"请求交易数据数据失败: {response.status_code} - { response.text()}")
 
+
+#新版更新老钱包买单查看用户历史的买入记录
+def check_account_tran(item):
+    '''
+        #2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
+    '''
+    now = datetime.now() #当前时间
+    start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
+    transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
+
+    if len(transactions_data)==0:
+        logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号（15天钱包的方法）")
+        return
+    block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
+    time_diff = (now - block_time).days
+    if time_diff >=15:
+        logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
+        mint = item['mint']
+        mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
+        redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
+        item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+        length = len(mint_15days_address[mint])
+        item['traderPublicKeyOld'] = mint_15days_address[mint][length-1]
+        item['title'] = "15天钱包"
+        send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
+
+    
+
 # 异步请求用户交易记录和余额
 def check_user_transactions(item):
     '''
@@ -373,7 +406,7 @@ def check_user_transactions(item):
         start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
         today = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())#今天的0点
         transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
-        
+
         if len(transactions_data)==0:
             logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号")
             return
@@ -414,8 +447,6 @@ def check_user_transactions(item):
                 nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
     except Exception as e:
          logging.error("用户交易记录的异常:", e)
-
-
 # 请求用户的账户余额并通知 老鲸鱼播报
 def check_user_balance(item,title):
     try:
@@ -438,7 +469,6 @@ def check_user_balance(item,title):
                 logging.info(f"代币 {item['mint']} 已经通知过了")
     except Exception as e:
             logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
-
 # 请求用户的卖出单 老金鱼暴击
 def check_user_wallet(item,title):
     logging.info(f"用户 {item['traderPublicKey']} 请求老鲸鱼暴击 {item['mint']}")
@@ -481,8 +511,7 @@ def check_user_wallet(item,title):
         else:
             logging.info(f"代币 {item['mint']} 已经通知过了")
     except Exception as e:
-        logging.error("捕捉到的异常:", e)
-        
+        logging.error("捕捉到的异常:", e)      
 # 查看用户一段时间的交易记录
 def fetch_user_transactions(start_time,end_time,item):
     url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={start_time}&block_time[]={end_time}&page=1&page_size=20&sort_by=block_time&sort_order=desc"
@@ -508,7 +537,6 @@ def send_telegram_notification(message,bot,tag):
             logging.error(f"{tag} 通知发送失败: {response.json()}")
     except Exception as e:
         logging.error(f"{tag} 发送通知时出错: {e}")
-
 #请求用户的总营收
 def fetch_user_total_profit(address):
     proxies = {
@@ -598,13 +626,6 @@ def fetch_user_account_sol(address):
         return data
     logging.info(f"用户 {address}  solana 余额接口调用失败了")
     return {"sol":0}
-        
-
-
-
-
-
-
 #通知交易端
 def send_to_trader(mint,type):
     if not CALL_BACK_URL:
