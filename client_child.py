@@ -382,11 +382,12 @@ def check_account_tran(item):
         mint = item['mint']
         mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
         redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
-        item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
         length = len(mint_15days_address[mint])
-        item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
-        item['title'] = "15天钱包"
-        send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
+        if length >=2:
+            item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
+            item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+            item['title'] = "15天钱包"
+            send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
 
     
 
