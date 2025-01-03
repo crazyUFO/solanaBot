@@ -52,6 +52,7 @@ TXHASH_SUBSCRBED = "txhash_subscrbed:"#redis 按订单去重 原子锁
 MINT_DEV_DATA = "mint_dev_data:"#缓存10秒之内的dev数据不在请求
 ADDRESS_HOLDINGS_DATA = "address_holdings_data:"#用户单币盈利缓存1天
 ADDRESS_TOKENS_DATA = "address_tokens_data:" #用户tokens sol 余额 缓存1小时
+MINT_POOL_DATA = "mint_pool_data:"#代币流动性缓存10秒
 #2025.1.2日更新增加新播报需求
 MINT_15DAYS_ADDRESS = "mint_15days_address:"
 mint_15days_address = {}
@@ -132,7 +133,7 @@ async def fetch_config(server_id = SERVER_ID):
         response.raise_for_status()  # 如果请求失败，则抛出异常
         data = response.json()['data']
         config = json.loads(data.get('settings'))
-        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM
+        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY
         TOKEN_EXPIRY = config.get("TOKEN_EXPIRY") * 60
         SINGLE_SOL = config.get("SINGLE_SOL")
         MIN_TOKEN_CAP = config.get("MIN_TOKEN_CAP")
@@ -143,6 +144,7 @@ async def fetch_config(server_id = SERVER_ID):
         SOLSCAN_TOKEN = config.get("SOLSCAN_TOKEN")
         DAY_NUM = config.get("DAY_NUM")
         MIN_DAY_NUM = 0.625 # 虽小满足播报的单位，同时也是redis缓存释放的时间
+        LIQUIDITY = 4000 #流动性
         BLANCE = config.get("BLANCE")
         CALL_BACK_URL = config.get("CALL_BACK_URL")
         logging.info("配置加载成功")
@@ -380,6 +382,12 @@ def check_account_tran(item):
     if time_diff >=15:
         logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
         mint = item['mint']
+        data_pool = fetch_token_pool(mint)
+        if not data_pool:
+            return
+        if data_pool['liquidity'] < LIQUIDITY:
+            logging.info(f"代币 {mint} 流动性小于4000")
+            return
         mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
         redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
         length = len(mint_15days_address[mint])
@@ -387,6 +395,7 @@ def check_account_tran(item):
             item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
             item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
             item['title'] = "15天钱包"
+            item['liquidity'] = data_pool['liquidity']
             send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
 
     
@@ -649,6 +658,26 @@ def send_to_trader(mint,type):
 #查看是mint是否已经播报过了
 def check_redis_key(item):
     return redis_client.set(f"{MINT_SUCCESS}{item['mint']}", json.dumps(item), nx=True, ex=int(86400 * MIN_DAY_NUM))
+#获取代币流动性
+def fetch_token_pool(mint):
+    data = redis_client.get(f"{MINT_POOL_DATA}{mint}")
+
+    if data:
+        logging.info(f"代币 {mint} 取出代币流动性缓存")
+        return json.loads(data)
+    else:
+        proxies = {
+            "https":proxy_expired.get("proxy")
+        }
+        res = gmgn_api.getTokenPoolInfo(token=mint,proxies=proxies)
+        if res.status_code == 200:
+            data = res.json()['data']
+            logging.info(f"代币 {mint} 代币流动性已缓存")
+            redis_client.set(f"{ADDRESS_HOLDINGS_DATA}{mint}",json.dumps(data),ex=10)
+            return data
+        else:
+            logging.error(f"代币 {mint} 获取代币流动性失败 {res.text}")
+    return {}
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理

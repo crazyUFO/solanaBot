@@ -294,5 +294,14 @@ class gmgn:
         proxies = proxies
         return self.session.get(url, headers=self.headers,proxy=proxies)
     
-    
+    def getTokenPoolInfo(self,token: str = None,proxies:dict = None) -> dict:
+        """
+        获取GMGN上 代币流动性的详情
+        """
+        if not token:
+            return "You must input a token address."
+        url = "https://gmgn.ai/api/v1/token_pool_info_sol/sol/{token}"
+        # 设置代理
+        proxies = proxies
+        return self.session.get(url, headers=self.headers,proxy=proxies)
     

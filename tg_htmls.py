@@ -114,6 +114,8 @@ def tg_message_html_4(info):
 
 <b>购买金额:{amount:.4f} SOL</b>
 <b>token市值:{market_cap:.4f} USDT</b>
+<b>烧池子:{liquidity:.4f} USDT</b>
+
 
 <b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}">详情</a></b>
 <b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKey}">详情</a></b>
@@ -131,6 +133,7 @@ def tg_message_html_4(info):
         market_cap = float(info.get('market_cap',0)),
         signature = info.get('signature'),
         traderPublicKey=info.get("traderPublicKey"),
-        traderPublicKeyOld = info.get("traderPublicKeyOld","--")
+        traderPublicKeyOld = info.get("traderPublicKeyOld","--"),
+        liquidity =  float(info.get('liquidity',0)),
     )
     return msg
