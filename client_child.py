@@ -673,7 +673,7 @@ def fetch_token_pool(mint):
         if res.status_code == 200:
             data = res.json()['data']
             logging.info(f"代币 {mint} 代币流动性已缓存")
-            redis_client.set(f"{ADDRESS_HOLDINGS_DATA}{mint}",json.dumps(data),ex=10)
+            redis_client.set(f"{MINT_POOL_DATA}{mint}",json.dumps(data),ex=10)
             return data
         else:
             logging.error(f"代币 {mint} 获取代币流动性失败 {res.text}")
