@@ -386,7 +386,7 @@ def check_account_tran(item):
         if not data_pool:
             return
         if float(data_pool['liquidity']) < LIQUIDITY:
-            logging.info(f"代币 {mint} 流动性小于4000")
+            logging.info(f"代币 {mint} 流动性 {data_pool['liquidity']} 设定值 {LIQUIDITY}")
             return
         mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
         redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
@@ -452,6 +452,7 @@ def check_user_transactions(item):
         data_pool = fetch_token_pool(item['mint'])
         if data_pool:
             item['liquidity'] = data_pool['liquidity']
+            logging.info(f"代币 {item['mint']} 流动性 {data_pool['liquidity']}")
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
                 nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
