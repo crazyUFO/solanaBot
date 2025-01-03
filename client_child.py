@@ -518,7 +518,6 @@ def check_user_wallet(item,title):
             hold_data['amount'] = item['amount']
             hold_data['signature'] = item['signature']
             hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-            hold_data['liquidity'] = item['liquidity']
             send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
             # #保存通知过的
             redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(hold_data))
@@ -686,7 +685,7 @@ def fetch_user_wallet_holdings_show_alert(address):
     data = redis_client.get(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}")
 
     if data:
-        logging.info(f"用户 {address} 取出用户最近活跃 警告数据百分比")
+        logging.info(f"用户 {address} 取出用户最近活跃 {data} 警告数据百分比")
         return data
     else:
         proxies = {
@@ -706,7 +705,7 @@ def fetch_user_wallet_holdings_show_alert(address):
             else:
                 proportion = is_show_alert_true_count / total_count
             if proportion:
-                logging.info(f"用户 {address} 用户最近活跃 警告数据百分比 已缓存")
+                logging.info(f"用户 {address} 用户最近活跃 警告数据百分比 {proportion} 已缓存")
                 redis_client.set(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}",proportion,ex=int(86400 * MIN_DAY_NUM))
             else:
                 logging.info(f"用户 {address} 用户最近活跃 警告数据百分比 是空 不能缓存")
