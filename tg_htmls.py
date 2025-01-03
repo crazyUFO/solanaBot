@@ -1,28 +1,39 @@
 #老鲸鱼的模版
 def tg_message_html_1(item):
- msg = f'''
-<b>🐋🐋🐋🐋{item["title"]}🐋🐋🐋🐋</b>
+    msg = '''
+<b>🐋🐋🐋🐋{title}🐋🐋🐋🐋</b>
 
 <b>token:</b>
-<code>{item["mint"]}</code>
+<code>{mint}</code>
 
 <b>购买的老钱包:</b>
-<code>{item['traderPublicKey']}</code>
+<code>{traderPublicKey}</code>
 
-<b>购买金额:{(item['amount']):.4f} SOL</b>
-<b>钱包余额{(item["sol"]):.4f} SOL</b>
-<b>钱包代币余额总计: {(item["total_balance"]):.4f} USDT</b>
-<b>链上查看钱包: <a href="https://solscan.io/account/{item['traderPublicKey']}">详情</a></b>
-<b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{item['traderPublicKey']}">详情</a></b>
-<b>交易详情:<a href="https://solscan.io/tx/{item["signature"]}">查看</a></b>
+<b>购买金额:{amount:.4f} SOL</b>
+<b>钱包余额:{sol:.4f} SOL</b>
+<b>钱包代币余额总计: {total_balance:.4f} USDT</b>
+<b>流动性: {liquidity:.4f}</b>
+<b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}">详情</a></b>
+<b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKey}">详情</a></b>
+<b>交易详情:<a href="https://solscan.io/tx/{signature}">查看</a></b>
 
-📈<b>查看K线: <a href="https://pump.fun/coin/{item["mint"]}">PUMP</a></b> <b><a href="https://gmgn.ai/sol/token/{item["mint"]}">GMGN</a></b>
+📈<b>查看K线: <a href="https://pump.fun/coin/{mint}">PUMP</a></b> <b><a href="https://gmgn.ai/sol/token/{mint}">GMGN</a></b>
 
 <a href="https://t.me/pepeboost_sol_bot?start=8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>PEPE一键买入</b></a>
 
 <a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
-                        '''    
- return msg
+    '''.format(
+        title=item.get("title"),
+        mint=item.get("mint"),
+        traderPublicKey=item.get("traderPublicKey"),
+        amount=float(item.get("amount", 0.0)),
+        sol=float(item.get("sol", 0.0)),
+        total_balance=float(item.get("total_balance", 0.0)),
+        liquidity=float(item.get("liquidity", 0.0)),
+        signature=item.get("signature")
+    )
+    return msg
+
 
 #老鲸鱼暴击的模版2
 def tg_message_html_2(info):
@@ -78,6 +89,7 @@ def tg_message_html_3(info):
 <b>token市值:{market_cap:.4f} USDT</b>
 <b>单币最高盈利:{realized_profit:.4f} USDT</b>
 <b>盈利百分比:{realized_pnl:.1f} %</b>
+<b>流动性:{liquidity:.1f} %</b>
 
 <b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}">详情</a></b>
 <b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKey}">详情</a></b>
@@ -97,6 +109,7 @@ def tg_message_html_3(info):
         market_cap = float(info.get('market_cap',0)),
         signature = info.get('signature'),
         traderPublicKey=info.get("traderPublicKey"),
+        liquidity=float(info.get('liquidity',0)),#流动性
     )
     return msg
 #新版15天钱包模板
@@ -114,7 +127,7 @@ def tg_message_html_4(info):
 
 <b>购买金额:{amount:.4f} SOL</b>
 <b>token市值:{market_cap:.4f} USDT</b>
-<b>烧池子:{liquidity:.4f} USDT</b>
+<b>流动性:{liquidity:.4f} USDT</b>
 
 
 <b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}">详情</a></b>

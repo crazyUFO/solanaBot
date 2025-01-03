@@ -448,6 +448,10 @@ def check_user_transactions(item):
             return
         #走播报
         logging.info(f"代币 {item['mint']} dev检测合格")
+        logging.info(f"代币 {item['mint']} 获取并塞入流动性数据")
+        data_pool = fetch_token_pool(item['mint'])
+        if data_pool:
+            item['liquidity'] = data_pool['liquidity']
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
                 nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
@@ -515,6 +519,7 @@ def check_user_wallet(item,title):
             hold_data['amount'] = item['amount']
             hold_data['signature'] = item['signature']
             hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+            hold_data['liquidity'] = item['liquidity']
             send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
             # #保存通知过的
             redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(hold_data))
