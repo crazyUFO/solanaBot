@@ -379,7 +379,7 @@ def check_account_tran(item):
         return
     block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
     time_diff = (now - block_time).days
-    if time_diff >=1:
+    if time_diff >=15:
         logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
         mint = item['mint']
         data_pool = fetch_token_pool(mint)
