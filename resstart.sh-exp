@@ -50,11 +50,8 @@ PID=$!
 
 # 打印后台进程信息
 echo "脚本已启动，进程 PID: $PID"
-echo "可以使用 'tail -f /dev/null' 来查看后台输出"
+echo "可以使用 'tail -f logs/app.log' 来查看后台输出"
 
 # 退出虚拟环境
 deactivate
-echo "打印日志..."
-tail -f logs/app.log
-
 
