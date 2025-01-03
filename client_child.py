@@ -382,12 +382,6 @@ def check_account_tran(item):
     if time_diff >=15:
         logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
         mint = item['mint']
-        data_pool = fetch_token_pool(mint)
-        if not data_pool:
-            return
-        if float(data_pool['liquidity']) < LIQUIDITY:
-            logging.info(f"代币 {mint} 流动性 {data_pool['liquidity']} 设定值 {LIQUIDITY}")
-            return
         mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
         redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
         length = len(mint_15days_address[mint])
@@ -395,7 +389,6 @@ def check_account_tran(item):
             item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
             item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
             item['title'] = "15天钱包"
-            item['liquidity'] = data_pool['liquidity']
             send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
 
     
@@ -448,11 +441,6 @@ def check_user_transactions(item):
             return
         #走播报
         logging.info(f"代币 {item['mint']} dev检测合格")
-        logging.info(f"代币 {item['mint']} 获取并塞入流动性数据")
-        data_pool = fetch_token_pool(item['mint'])
-        if data_pool:
-            item['liquidity'] = data_pool['liquidity']
-            logging.info(f"代币 {item['mint']} 流动性 {data_pool['liquidity']}")
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
                 nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
