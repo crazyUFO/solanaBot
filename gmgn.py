@@ -300,7 +300,7 @@ class gmgn:
         """
         if not token:
             return "You must input a token address."
-        url = "https://gmgn.ai/api/v1/token_pool_info_sol/sol/{token}"
+        url = f"https://gmgn.ai/api/v1/token_pool_info_sol/sol/{token}"
         # 设置代理
         proxies = proxies
         return self.session.get(url, headers=self.headers,proxy=proxies)

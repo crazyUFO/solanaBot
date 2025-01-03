@@ -379,13 +379,13 @@ def check_account_tran(item):
         return
     block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
     time_diff = (now - block_time).days
-    if time_diff >=15:
+    if time_diff >=1:
         logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
         mint = item['mint']
         data_pool = fetch_token_pool(mint)
         if not data_pool:
             return
-        if data_pool['liquidity'] < LIQUIDITY:
+        if float(data_pool['liquidity']) < LIQUIDITY:
             logging.info(f"代币 {mint} 流动性小于4000")
             return
         mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
@@ -661,7 +661,6 @@ def check_redis_key(item):
 #获取代币流动性
 def fetch_token_pool(mint):
     data = redis_client.get(f"{MINT_POOL_DATA}{mint}")
-
     if data:
         logging.info(f"代币 {mint} 取出代币流动性缓存")
         return json.loads(data)
