@@ -12,7 +12,7 @@ def tg_message_html_1(item):
 <b>购买金额:{amount:.4f} SOL</b>
 <b>钱包余额:{sol:.4f} SOL</b>
 <b>钱包代币余额总计: {total_balance:.4f} USDT</b>
-<b>流动性: {liquidity:.4f}</b>
+<b>流动性: {liquidity:.4f} USDT</b>
 <b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}">详情</a></b>
 <b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKey}">详情</a></b>
 <b>交易详情:<a href="https://solscan.io/tx/{signature}">查看</a></b>
@@ -89,7 +89,7 @@ def tg_message_html_3(info):
 <b>token市值:{market_cap:.4f} USDT</b>
 <b>单币最高盈利:{realized_profit:.4f} USDT</b>
 <b>盈利百分比:{realized_pnl:.1f} %</b>
-<b>流动性:{liquidity:.1f}</b>
+<b>流动性:{liquidity:.1f} USDT</b>
 
 <b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKey}">详情</a></b>
 <b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKey}">详情</a></b>
