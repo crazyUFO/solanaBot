@@ -51,6 +51,7 @@ MINT_SUBSCRBED = "mint_subscrbed:"#redis存放已经订阅过的地址 //去重
 TXHASH_SUBSCRBED = "txhash_subscrbed:"#redis 按订单去重 原子锁
 MINT_DEV_DATA = "mint_dev_data:"#缓存10秒之内的dev数据不在请求
 ADDRESS_HOLDINGS_DATA = "address_holdings_data:"#用户单币盈利缓存1天
+ADDRESS_HOLDINGS_ALERT_DATA = "address_holdings_alert_data:"#用户最近活跃 ##分析感叹号数量
 ADDRESS_TOKENS_DATA = "address_tokens_data:" #用户tokens sol 余额 缓存1小时
 MINT_POOL_DATA = "mint_pool_data:"#代币流动性缓存10秒
 #2025.1.2日更新增加新播报需求
@@ -379,17 +380,26 @@ def check_account_tran(item):
         return
     block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
     time_diff = (now - block_time).days
-    if time_diff >=15:
-        logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
-        mint = item['mint']
-        mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
-        redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
-        length = len(mint_15days_address[mint])
-        if length >=2:
-            item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
-            item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-            item['title'] = "15天钱包"
-            send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
+    if time_diff <15:
+        return
+    logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
+    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
+    if alert_data is None:
+        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
+        return
+    if alert_data > 0.5:
+        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
+        return
+    mint = item['mint']
+    mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
+    redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
+    length = len(mint_15days_address[mint])
+    if length >=2:
+        item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
+        item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+        item['title'] = "15天钱包"
+        send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
+
 
     
 
@@ -671,6 +681,40 @@ def fetch_token_pool(mint):
         else:
             logging.error(f"代币 {mint} 获取代币流动性失败 {res.text}")
     return {}
+#请求用户的代币列表并对感叹号的数量进行计数
+def fetch_user_wallet_holdings_show_alert(address):
+    data = redis_client.get(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}")
+
+    if data:
+        logging.info(f"用户 {address} 取出用户最近活跃 警告数据百分比")
+        return data
+    else:
+        proxies = {
+            "https":proxy_expired.get("proxy")
+        }
+        res = gmgn_api.getWalletHoldings(walletAddress=address,params="limit=50&orderby=last_active_timestamp&direction=desc&showsmall=true&sellout=true&tx30d=true",proxies=proxies)
+        if res.status_code == 200:
+            data = res.json()['data']
+            holdings = data.get('holdings')
+
+            # 统计 is_show_alert 为 True 的数量
+            is_show_alert_true_count = sum(1 for item in holdings if item.get("token", {}).get("is_show_alert"))
+            total_count = len(holdings)
+            # 检查是否为空列表，避免除以零
+            if total_count == 0:
+                proportion = None  # 如果没有数据，比例设为 0
+            else:
+                proportion = is_show_alert_true_count / total_count
+            if proportion:
+                logging.info(f"用户 {address} 用户最近活跃 警告数据百分比 已缓存")
+                redis_client.set(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}",proportion,ex=int(86400 * MIN_DAY_NUM))
+            else:
+                logging.info(f"用户 {address} 用户最近活跃 警告数据百分比 是空 不能缓存")
+            return proportion
+        else:
+            logging.error(f"用户 {address} 获取用户最近活跃失败 {res.text}")
+    return None
+
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
