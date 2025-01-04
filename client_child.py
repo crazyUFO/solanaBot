@@ -398,6 +398,7 @@ def ljy_zzqb(item,transactions_data):
     sol = data.get('sol')
     logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
     if len(tokens)>=2 and total_balance >=50000:
+        send_to_trader(mint=item['mint'],type=4) #通知交易端
         item['total_balance'] = total_balance
         item['sol'] = sol
         item['traderPublicKeyParent'] = father_address
@@ -430,6 +431,7 @@ def ljy_15days(item,transactions_data):
     redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
     length = len(mint_15days_address[mint])
     if length >=2:
+        send_to_trader(mint=mint,type=3) #通知交易端
         item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
         item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
         item['title'] = "15天钱包"
