@@ -386,7 +386,7 @@ def ljy_zzqb(item,transactions_data):
     father_address = None
     for value in transfer_data:
         sol_amount = value['amount']/(10**value['token_decimals'])
-        if sol_amount>=2 and value['from_address'] not in ['3vxheE5C46XzK4XftziRhwAf8QAfipD7HXXWj25mgkom','59aPdjRaWSeCUpRy7eiuiRAfyUS6TMrUWoy4RFA2CF55','5VCwKtCXgCJ6kit5FybXjvriW3xELsFDhYrPSqtJNmcD','AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2','5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9']:#2个以上转账 并且不是交易所地址
+        if sol_amount>=2 and value['from_address'] not in ['3vxheE5C46XzK4XftziRhwAf8QAfipD7HXXWj25mgkom','59aPdjRaWSeCUpRy7eiuiRAfyUS6TMrUWoy4RFA2CF55','5VCwKtCXgCJ6kit5FybXjvriW3xELsFDhYrPSqtJNmcD','AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2','5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9','BmFdpraQhkiDQE6SnfG5omcA1VwzqfXrwtNYBwWTymy6','9obNtb5GyUegcs3a1CbBkLuc5hEWynWfJC6gjz5uWQkE','ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ','GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE','FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5','AobVSwdW9BbpMdJvTqeCN4hPAmh4rHm7vwLnQ5ATSyrS']:#2个以上转账 并且不是交易所地址
             father_address = value['from_address']
             break
     if not father_address:
@@ -398,11 +398,12 @@ def ljy_zzqb(item,transactions_data):
     sol = data.get('sol')
     logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
     if len(tokens)>=2 and total_balance >=50000:
-        send_to_trader(mint=item['mint'],type=4) #通知交易端
+        if check_redis_key(item):
+            send_to_trader(mint=item['mint'],type=4) #通知交易端
         item['total_balance'] = total_balance
         item['sol'] = sol
         item['traderPublicKeyParent'] = father_address
-        item['转账老钱包']
+        item['title'] = "老钱包转账"
         send_telegram_notification(tg_message_html_5(item),[TELEGRAM_BOT_TOKEN_ZHUANZHANG,TELEGRAM_CHAT_ID_ZHUANZHANG],f"用户 {item['traderPublicKey']} 转账老钱包")
     
 #新版更新老钱包买单查看用户历史的买入记录
@@ -431,7 +432,8 @@ def ljy_15days(item,transactions_data):
     redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
     length = len(mint_15days_address[mint])
     if length >=2:
-        send_to_trader(mint=mint,type=3) #通知交易端
+        if check_redis_key(item):
+            send_to_trader(mint=mint,type=3) #通知交易端
         item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
         item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
         item['title'] = "15天钱包"
@@ -713,11 +715,11 @@ def send_to_trader(mint,type):
         headers = {'Content-Type': 'application/json'}
         # 使用 json= 参数，requests 会自动处理将字典转换为 JSON 格式并设置 Content-Type
         response = requests.post(CALL_BACK_URL, json=params, headers=headers)  # 设置超时为 10 秒
-        logging.info(f"代币 {mint} 已经发送到交易端")
+        logging.info(f"代币 {mint} 已经发送到交易端 代号 {type}")
         # 如果响应状态码不是 200，会抛出异常
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        logging.info(f"代币 {mint} 发送交易失败")
+        logging.info(f"代币 {mint} 发送交易失败 代号 {type}")
 #查看是mint是否已经播报过了
 def check_redis_key(item):
     return redis_client.set(f"{MINT_SUCCESS}{item['mint']}", json.dumps(item), nx=True, ex=int(86400 * MIN_DAY_NUM))
