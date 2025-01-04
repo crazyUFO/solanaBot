@@ -14,7 +14,7 @@ import time
 import configparser
 from cloudbypass import Proxy
 from gmgn import gmgn
-from tg_htmls import tg_message_html_1,tg_message_html_3, tg_message_html_4
+from tg_htmls import tg_message_html_1,tg_message_html_3, tg_message_html_4, tg_message_html_5
 # 创建配置解析器对象
 config = configparser.ConfigParser()
 # 读取INI文件时指定编码
@@ -30,6 +30,8 @@ TELEGRAM_BOT_TOKEN_BAOJI = config.get('TELEGRAM', 'TELEGRAM_BOT_TOKEN_BAOJI')  #
 TELEGRAM_CHAT_ID_BAOJI = config.get('TELEGRAM', 'TELEGRAM_CHAT_ID_BAOJI')  # 你的 Telegram 用户或群组 ID 暴击的
 TELEGRAM_BOT_TOKEN_15DAYS = config.get('TELEGRAM', 'TELEGRAM_BOT_TOKEN_15DAYS')  # Telegram 机器人的 API Token   15day老钱包
 TELEGRAM_CHAT_ID_15DAYS = config.get('TELEGRAM', 'TELEGRAM_CHAT_ID_15DAYS')  # 你的 Telegram 用户或群组 ID 15day老钱包
+TELEGRAM_BOT_TOKEN_ZHUANZHANG = config.get('TELEGRAM', 'TELEGRAM_BOT_TOKEN_ZHUANZHANG')  # Telegram 机器人的 API Token   老钱包转账
+TELEGRAM_CHAT_ID_ZHUANZHANG = config.get('TELEGRAM', 'TELEGRAM_CHAT_ID_ZHUANZHANG')  # 你的 Telegram 用户或群组 ID 老钱包转账
 REDIS_HOST = config.get('REDIS', 'REDIS_HOST') #本地
 REDIS_PORT =  config.getint('REDIS', 'REDIS_PORT')
 REDIS_PWD = config.get('REDIS', 'REDIS_PWD')
@@ -144,7 +146,7 @@ async def fetch_config(server_id = SERVER_ID):
         HELIUS_API_KEY = config.get("HELIUS_API_KEY")
         SOLSCAN_TOKEN = config.get("SOLSCAN_TOKEN")
         DAY_NUM = config.get("DAY_NUM")
-        MIN_DAY_NUM = 0.625 # 虽小满足播报的单位，同时也是redis缓存释放的时间
+        MIN_DAY_NUM = 0.7 # 虽小满足播报的单位，同时也是redis缓存释放的时间
         LIQUIDITY = 4000 #流动性
         BLANCE = config.get("BLANCE")
         CALL_BACK_URL = config.get("CALL_BACK_URL")
@@ -321,9 +323,7 @@ async def process_message():
 def transactions_message_no_list(data):
     check = redis_client.exists(f"{ADDRESS_EXPIRY}{data['traderPublicKey']}")
     if not check: #排除了那些频繁交易的 减少API输出
-        if data['amount'] >= SINGLE_SOL:
-            executor.submit(check_user_transactions, data)
-        executor.submit(check_account_tran, data)
+        executor.submit(check_user_transactions, data)
     else:
         logging.info(f"用户 {data['traderPublicKey']} 已被redis排除 {MIN_DAY_NUM} 天")
 
@@ -365,19 +365,54 @@ def transactions_message_no_list(data):
 #     else:
 #         logging.error(f"请求交易数据数据失败: {response.status_code} - { response.text()}")
 
+#新版更新老鲸鱼转账钱包
+def ljy_zzqb(item,transactions_data):
+    '''
+    老鲸鱼转账钱包 
+    内容 抓内盘买单（买单钱包必须是操作不频繁24小时内没操作过 买卖的再去抓上级） 
+    钱包上级转账是鲸鱼钱包 至少持有两个代币 持有代币余额大于5w刀以上
 
+    符合条件播报钱包和上级钱包 和ca  一级钱包购买大于0.3
+    '''
+    if len(transactions_data)==0:
+        logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号（老钱包转账）")
+        return
+    now = datetime.now() #当前时间
+    block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
+    time_diff = (now - block_time).days
+    if time_diff < 1:
+        return
+    transfer_data = fetch_user_transfer(item['traderPublicKey'])
+    father_address = None
+    for value in transfer_data:
+        sol_amount = value['amount']/(10**value['token_decimals'])
+        if sol_amount>=2 and value['from_address'] not in ['3vxheE5C46XzK4XftziRhwAf8QAfipD7HXXWj25mgkom','59aPdjRaWSeCUpRy7eiuiRAfyUS6TMrUWoy4RFA2CF55','5VCwKtCXgCJ6kit5FybXjvriW3xELsFDhYrPSqtJNmcD','AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2','5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9']:#2个以上转账 并且不是交易所地址
+            father_address = value['from_address']
+            break
+    if not father_address:
+        return
+    logging.info(f"用户 {item['traderPublicKey']} 的上级转账老钱包为 {father_address}")
+    data = fetch_user_tokens(father_address)
+    tokens = data.get('tokens')
+    total_balance = data.get('total_balance')
+    sol = data.get('sol')
+    logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
+    if len(tokens)>=2 and total_balance >=50000:
+        item['total_balance'] = total_balance
+        item['sol'] = sol
+        item['traderPublicKeyParent'] = father_address
+        item['转账老钱包']
+        send_telegram_notification(tg_message_html_5(item),[TELEGRAM_BOT_TOKEN_ZHUANZHANG,TELEGRAM_CHAT_ID_ZHUANZHANG],f"用户 {item['traderPublicKey']} 转账老钱包")
+    
 #新版更新老钱包买单查看用户历史的买入记录
-def check_account_tran(item):
+def ljy_15days(item,transactions_data):
     '''
         #2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
     '''
-    now = datetime.now() #当前时间
-    start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
-    transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
-
     if len(transactions_data)==0:
         logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号（15天钱包的方法）")
         return
+    now = datetime.now() #当前时间
     block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
     time_diff = (now - block_time).days
     if time_diff <15:
@@ -400,11 +435,8 @@ def check_account_tran(item):
         item['title'] = "15天钱包"
         send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
 
-
-    
-
 # 异步请求用户交易记录和余额
-def check_user_transactions(item):
+def ljy_ljy_bj(item,transactions_data):
     '''
         老鲸鱼3种情况：
         1.今日第一笔交易和前一次交易要间隔24小时,中间不能出现任何交易单--1天老鲸鱼
@@ -415,14 +447,11 @@ def check_user_transactions(item):
         1.单次买入0.5以上，tokens余额再1W以上，总营收超过1w美金以上
     '''
     try:
-        now = datetime.now() #当前时间
-        start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
-        today = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())#今天的0点
-        transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
-
         if len(transactions_data)==0:
-            logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号")
+            logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号 (老鲸鱼 老鲸鱼暴击)")
             return
+        now = datetime.now() #当前时间
+        today = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())#今天的0点
         sum = 0 #计算今日内的买入条数
         last_time = None #存放今日之外的最后一笔交易的时间
         first_time = now.timestamp() #这次交易的时间
@@ -449,8 +478,18 @@ def check_user_transactions(item):
 
         if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号，加起来超过10个sol
             return
-        #走播报
         logging.info(f"代币 {item['mint']} dev检测合格")
+
+        #检查感叹号数据
+        alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
+        if alert_data is None:
+            logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
+            return
+        if alert_data > 0.5:
+            logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
+            return
+        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
+        #走播报
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
                 nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
@@ -460,6 +499,25 @@ def check_user_transactions(item):
                 nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
     except Exception as e:
          logging.error("用户交易记录的异常:", e)
+
+
+def check_user_transactions(item):
+    '''
+    为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
+    '''
+    now = datetime.now() #当前时间
+    start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
+    transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
+    if item['amount'] >= SINGLE_SOL:
+        #老鲸鱼和老鲸鱼暴击
+        executor.submit(ljy_ljy_bj, item,transactions_data)
+    #新版15天钱包播报
+    executor.submit(ljy_15days, item,transactions_data)
+    #新版老钱包转账播报
+    executor.submit(ljy_zzqb, item,transactions_data)
+
+
+
 # 请求用户的账户余额并通知 老鲸鱼播报
 def check_user_balance(item,title):
     try:
@@ -619,7 +677,7 @@ def fetch_user_tokens(address):
         balances_api_key=HELIUS_API_KEY,
         account_address=address
     )
-    data = {"total_balance":portfolio_calculator.calculate_total_value(),"sol":portfolio_calculator.get_sol()}
+    data = {"total_balance":portfolio_calculator.calculate_total_value(),"sol":portfolio_calculator.get_sol(),"tokens":portfolio_calculator.get_tokens()}
     logging.info(f"用户 {address} tokens sol 已缓存")
     redis_client.set(f"{ADDRESS_TOKENS_DATA}{address}",json.dumps(data),ex=3600)
     return data
@@ -713,6 +771,15 @@ def fetch_user_wallet_holdings_show_alert(address):
         else:
             logging.error(f"用户 {address} 获取用户最近活跃失败 {res.text}")
     return None
+#请求用户转账记录
+def fetch_user_transfer(address):
+    url = f"https://pro-api.solscan.io/v2.0/account/transfer?address={address}&token=So11111111111111111111111111111111111111111&exclude_amount_zero=true&flow=in&page=1&page_size=10&sort_by=block_time&sort_order=asc"    
+    response= requests.get(url,headers=headers)
+    if response.status_code == 200:
+        response_data =  response.json()
+        return response_data.get('data', [])
+    return []
+
 
 # 主程序
 async def main():

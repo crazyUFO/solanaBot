@@ -144,3 +144,43 @@ def tg_message_html_4(info):
         traderPublicKeyOld = info.get("traderPublicKeyOld","--"),
     )
     return msg
+
+#新版老钱包转账
+def tg_message_html_5(info):
+    msg = '''
+<b>🌟🌟🌟🌟{title}🌟🌟🌟🌟</b>
+
+<b>token:</b>
+<code>{mint}</code>
+
+<b>上级钱包:</b>
+<code>{traderPublicKeyParent}</code>
+<b>本次购买的钱包:</b>
+<code>{traderPublicKey}</code>
+
+<b>购买金额:{amount:.4f} SOL</b>
+<b>上级钱包余额tokens:{total_balance:.4f} USDT</b>
+<b>上级钱包余额sol:{sol:.4f} SOL</b>
+
+
+
+<b>链上查看钱包: <a href="https://solscan.io/account/{traderPublicKeyParent}">详情</a></b>
+<b>GMGN查看钱包: <a href="https://gmgn.ai/sol/address/{traderPublicKeyParent}">详情</a></b>
+<b>交易详情:<a href="https://solscan.io/tx/{signature}">查看</a></b>
+
+📈<b>查看K线: <a href="https://pump.fun/coin/{mint}">PUMP</a></b> <b><a href="https://gmgn.ai/sol/token/{mint}">GMGN</a></b>
+
+<a href="https://t.me/pepeboost_sol_bot?start=8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>PEPE一键买入</b></a>
+
+<a href="https://t.me/sol_dbot?start=ref_73848156_8rH1o8mhtjtH14kccygYkfBsp9ucQfnMuFJBCECJpump"><b>DBOX一键买入</b></a>
+    '''.format(
+        mint = info.get("mint"),
+        title=info.get("title"),
+        amount=float(info.get('amount',0)),
+        total_balance = float(info.get('total_balance',0)),
+        sol = float(info.get('sol',0)),
+        signature = info.get('signature'),
+        traderPublicKey=info.get("traderPublicKey"),
+        traderPublicKeyParent = info.get("traderPublicKeyParent","--"),
+    )
+    return msg

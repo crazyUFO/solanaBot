@@ -10,6 +10,7 @@ class PortfolioValueCalculatorJUP:
         self.balances_api_key = balances_api_key
         self.balances_api = BalancesAPI(self.balances_api_key)
         self.nativeBalance = 0
+        self.tokens = []
         
     def get_non_zero_balances(self):
         """
@@ -27,7 +28,7 @@ class PortfolioValueCalculatorJUP:
             for token in data["tokens"]
             if token["amount"] > 0
         ]
-        
+        self.tokens = non_zero_balances
         return non_zero_balances
 
     def chunk_mints(self, tokens, chunk_size=20):
@@ -101,3 +102,6 @@ class PortfolioValueCalculatorJUP:
 
     def get_sol(self):
         return self.nativeBalance / (10 **9)
+    
+    def get_tokens(self):
+        return self.tokens
