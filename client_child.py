@@ -136,7 +136,7 @@ async def fetch_config(server_id = SERVER_ID):
         response.raise_for_status()  # 如果请求失败，则抛出异常
         data = response.json()['data']
         config = json.loads(data.get('settings'))
-        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY,ALTER_PROPORTION
+        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY,ALTER_PROPORTION,ALLOWED_TRAN_TYPES
         TOKEN_EXPIRY = config.get("TOKEN_EXPIRY") * 60
         SINGLE_SOL = config.get("SINGLE_SOL")
         MIN_TOKEN_CAP = config.get("MIN_TOKEN_CAP")
@@ -149,6 +149,7 @@ async def fetch_config(server_id = SERVER_ID):
         MIN_DAY_NUM = 0.7 # 虽小满足播报的单位，同时也是redis缓存释放的时间
         LIQUIDITY = 4000 #流动性
         ALTER_PROPORTION = 0.6 #感叹号占比
+        ALLOWED_TRAN_TYPES = [2] #允许的交易类型
         BLANCE = config.get("BLANCE")
         CALL_BACK_URL = config.get("CALL_BACK_URL")
         logging.info("配置加载成功")
@@ -399,8 +400,15 @@ def ljy_zzqb(item,transactions_data):
     total_balance = data.get('total_balance')
     sol = data.get('sol')
     logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
+    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
+    if alert_data is None:
+        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
+        return
+    if alert_data > ALTER_PROPORTION:
+        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
+        return
     if len(tokens)>=2 and total_balance >=50000:
-        if check_redis_key(item):
+        if check_redis_key(item,4):
             send_to_trader(mint=item['mint'],type=4) #通知交易端
         item['total_balance'] = total_balance
         item['sol'] = sol
@@ -436,7 +444,7 @@ def ljy_15days(item,transactions_data):
     redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
     length = len(mint_15days_address[mint])
     if length >=2:
-        if check_redis_key(item):
+        if check_redis_key(item,3):
             send_to_trader(mint=mint,type=3) #通知交易端
         item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
         item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
@@ -539,7 +547,7 @@ def check_user_balance(item,title):
         #if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
         if total_balance >= TOKEN_BALANCE:
             #先通知交易端 #老鲸鱼
-            if check_redis_key(item):
+            if check_redis_key(item,1):
                 send_to_trader(item['mint'],1)
             else:
                 logging.info(f"代币 {item['mint']} 已经通知过了")
@@ -580,7 +588,7 @@ def check_user_wallet(item,title):
                 if total_balance < TOKEN_BALANCE:
                     logging.error(f"用户 {item['traderPublicKey']} tokens 余额 {total_balance} 设定 {TOKEN_BALANCE} 不满足")
                     return
-        if check_redis_key(item):
+        if check_redis_key(item,2):
             send_to_trader(item['mint'],2)
         else:
             logging.info(f"代币 {item['mint']} 已经通知过了")
@@ -729,7 +737,10 @@ def send_to_trader(mint,type):
     except requests.exceptions.RequestException as e:
         logging.info(f"代币 {mint} 发送交易失败 代号 {type}")
 #查看是mint是否已经播报过了
-def check_redis_key(item):
+def check_redis_key(item,type):
+    if type not in ALLOWED_TRAN_TYPES:
+        logging.info(f"交易类型 {type} 不允许")
+        return False
     return redis_client.set(f"{MINT_SUCCESS}{item['mint']}", json.dumps(item), nx=True, ex=int(86400 * MIN_DAY_NUM))
 #获取代币流动性
 def fetch_token_pool(mint):
