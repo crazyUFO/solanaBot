@@ -136,7 +136,7 @@ async def fetch_config(server_id = SERVER_ID):
         response.raise_for_status()  # 如果请求失败，则抛出异常
         data = response.json()['data']
         config = json.loads(data.get('settings'))
-        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY
+        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY,ALTER_PROPORTION
         TOKEN_EXPIRY = config.get("TOKEN_EXPIRY") * 60
         SINGLE_SOL = config.get("SINGLE_SOL")
         MIN_TOKEN_CAP = config.get("MIN_TOKEN_CAP")
@@ -148,6 +148,7 @@ async def fetch_config(server_id = SERVER_ID):
         DAY_NUM = config.get("DAY_NUM")
         MIN_DAY_NUM = 0.7 # 虽小满足播报的单位，同时也是redis缓存释放的时间
         LIQUIDITY = 4000 #流动性
+        ALTER_PROPORTION = 0.6 #感叹号占比
         BLANCE = config.get("BLANCE")
         CALL_BACK_URL = config.get("CALL_BACK_URL")
         logging.info("配置加载成功")
@@ -424,7 +425,7 @@ def ljy_15days(item,transactions_data):
     if alert_data is None:
         logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
         return
-    if alert_data > 0.5:
+    if alert_data > ALTER_PROPORTION:
         logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
         return
     mint = item['mint']
@@ -489,7 +490,7 @@ def ljy_ljy_bj(item,transactions_data):
         if alert_data is None:
             logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
             return
-        if alert_data > 0.5:
+        if alert_data > ALTER_PROPORTION:
             logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
             return
         logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
