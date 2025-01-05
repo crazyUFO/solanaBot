@@ -258,10 +258,10 @@ async def websocket_handler():
                                     amount = 0
                                 #加入最后活跃时间
                                 if mint in subscriptions:
-                                    subscriptions[mint] = {
-                                        "last_trade_time":time.time(),
-                                        "market_cap_sol":message['marketCapSol']
-                                    }
+                                    subscriptions[mint].update({
+                                        "last_trade_time": time.time(),
+                                        "market_cap_sol": message['marketCapSol'],
+                                    })
                                 #扫描符合要求的订单
                                 if amount >= 0.3: ##2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
                                     lock_acquired = redis_client.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁5秒", nx=True, ex=5)  # 锁5秒自动过期
@@ -275,10 +275,10 @@ async def websocket_handler():
                             elif txType == "sell":
                                 #加入最后活跃时间
                                 if mint in subscriptions:
-                                    subscriptions[mint] = {
-                                        "last_trade_time":time.time(),
-                                        "market_cap_sol":message['marketCapSol']
-                                    }
+                                    subscriptions[mint].update({
+                                        "last_trade_time": time.time(),
+                                        "market_cap_sol": message['marketCapSol'],
+                                    })
                         else:
                             logging.info(f"其他数据 {message}")  
                     except json.JSONDecodeError:
@@ -307,7 +307,8 @@ async def process_message():
                 if mint not in subscriptions:
                     subscriptions[mint] = {
                         "last_trade_time":time.time(),
-                        "market_cap_sol":data['marketCapSol']
+                        "market_cap_sol":data['marketCapSol'],
+                        "symbol":data['symbol']
                     }
                     logging.info(f"订阅新代币 {mint} 已记录")                    
                     payload = {
@@ -404,7 +405,9 @@ def ljy_zzqb(item,transactions_data):
         item['total_balance'] = total_balance
         item['sol'] = sol
         item['traderPublicKeyParent'] = father_address
-        item['title'] = "老钱包转账"
+        item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+        symbol = subscriptions[item['mint']]['symbol']
+        item['title'] = f"转账CA:{symbol}"
         send_telegram_notification(tg_message_html_5(item),[TELEGRAM_BOT_TOKEN_ZHUANZHANG,TELEGRAM_CHAT_ID_ZHUANZHANG],f"用户 {item['traderPublicKey']} 转账老钱包")
     
 #新版更新老钱包买单查看用户历史的买入记录
@@ -437,7 +440,9 @@ def ljy_15days(item,transactions_data):
             send_to_trader(mint=mint,type=3) #通知交易端
         item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
         item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-        item['title'] = "15天钱包"
+        item['alert_data'] = alert_data
+        symbol = subscriptions[item['mint']]['symbol']
+        item['title'] = f"第{length-1}通知CA:{symbol}"
         send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
 
 # 异步请求用户交易记录和余额
@@ -468,7 +473,7 @@ def ljy_ljy_bj(item,transactions_data):
             else:
                 last_time = value['block_time'] # 当区块链时间有一个是今天以外的时间，将这个对象取出并结束循环
                 break
-        if sum > 5:#前面只能出现4条买入，加上自己就是第五条
+        if sum > 3:#前面只能出现4条买入，加上自己就是第五条
             #redis 记录大于5条的用户
             redis_client.set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","当日大于5条交易",nx=True,ex=int(86400 * MIN_DAY_NUM))
             logging.info(f"用户 {item['traderPublicKey']} 今日交易买入量已超5条")
@@ -495,13 +500,15 @@ def ljy_ljy_bj(item,transactions_data):
             return
         logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
         #走播报
+        symbol = subscriptions[item['mint']]['symbol']
+        item['alert_data'] = alert_data
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
-                nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
-                nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
+                nested_executor.submit(check_user_balance, item,f"老鲸鱼CA:{symbol}")  #老鲸鱼
+                nested_executor.submit(check_user_wallet, item,f"暴击CA:{symbol}")  #老鲸鱼暴击
             elif time_diff>=MIN_DAY_NUM and  sum == 0:#一天以上老鲸鱼 老鲸鱼暴击 改成了15小时就报               
-                nested_executor.submit(check_user_balance, item,f"老鲸鱼")  #老鲸鱼
-                nested_executor.submit(check_user_wallet, item,f"老鲸鱼暴击")  #老鲸鱼暴击
+                nested_executor.submit(check_user_balance, item,f"老鲸鱼CA:{symbol}")  #老鲸鱼
+                nested_executor.submit(check_user_wallet, item,f"暴击CA:{symbol}")  #老鲸鱼暴击
     except Exception as e:
          logging.error("用户交易记录的异常:", e)
 
@@ -522,7 +529,6 @@ def check_user_transactions(item):
     executor.submit(ljy_zzqb, item,transactions_data)
 
 
-
 # 请求用户的账户余额并通知 老鲸鱼播报
 def check_user_balance(item,title):
     try:
@@ -535,14 +541,15 @@ def check_user_balance(item,title):
             #先通知交易端 #老鲸鱼
             if check_redis_key(item):
                 send_to_trader(item['mint'],1)
-                item['title'] = title
-                item['sol'] = sol
-                item['total_balance'] = total_balance
-                send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
-                #保存通知过的
-                redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
             else:
                 logging.info(f"代币 {item['mint']} 已经通知过了")
+            item['title'] = title
+            item['sol'] = sol
+            item['total_balance'] = total_balance
+            item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+            send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
+            #保存通知过的
+            redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
     except Exception as e:
             logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
 # 请求用户的卖出单 老金鱼暴击
@@ -575,17 +582,17 @@ def check_user_wallet(item,title):
                     return
         if check_redis_key(item):
             send_to_trader(item['mint'],2)
-            hold_data["traderPublicKey"] = item['traderPublicKey']
-            hold_data["title"] = title
-            hold_data['mint'] = item['mint']
-            hold_data['amount'] = item['amount']
-            hold_data['signature'] = item['signature']
-            hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
-            # #保存通知过的
-            redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(hold_data))
         else:
             logging.info(f"代币 {item['mint']} 已经通知过了")
+        hold_data["traderPublicKey"] = item['traderPublicKey']
+        hold_data["title"] = title
+        hold_data['mint'] = item['mint']
+        hold_data['amount'] = item['amount']
+        hold_data['signature'] = item['signature']
+        hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+        send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
+        # #保存通知过的
+        redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(hold_data))
     except Exception as e:
         logging.error("捕捉到的异常:", e)      
 # 查看用户一段时间的交易记录
@@ -749,7 +756,7 @@ def fetch_user_wallet_holdings_show_alert(address):
 
     if data:
         logging.info(f"用户 {address} 取出用户最近活跃 {data} 警告数据百分比")
-        return data
+        return float(data)
     else:
         proxies = {
             "https":proxy_expired.get("proxy")
