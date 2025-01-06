@@ -42,7 +42,7 @@ WS_URL = config.get('General', 'WS_URL') # WebSocket 地址
 LOG_DIR = config.get('LOG', 'DIR')
 LOG_NAME = config.get('LOG', 'NAME')
 MINT_SUCCESS = "mint_success:"#redis存放已经播报过的盘 //1小时释放
-ADDRESS_SUCCESS = "success:"#存放播报的 老鲸鱼
+ADDRESS_SUCCESS = "success:"#存放播报过的 success:mint地址/type类型 1 2 3 4
 ADDRESS_SUCCESS_BAOJI = "success_baoji:"#存放播报的 暴击
 ADDRESS_EXPIRY = "expiry:" #今日交易超限制，新账号，这种的就直接锁住
 # 创建线程池执行器
@@ -59,6 +59,7 @@ MINT_POOL_DATA = "mint_pool_data:"#代币流动性缓存10秒
 #2025.1.2日更新增加新播报需求
 MINT_15DAYS_ADDRESS = "mint_15days_address:"
 mint_15days_address = {}
+exchange_wallets = [] #拉黑的交易所地址，从服务器获取
 # 初始化日志
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
@@ -136,7 +137,7 @@ async def fetch_config(server_id = SERVER_ID):
         response.raise_for_status()  # 如果请求失败，则抛出异常
         data = response.json()['data']
         config = json.loads(data.get('settings'))
-        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY,ALTER_PROPORTION,ALLOWED_TRAN_TYPES
+        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY,ALTER_PROPORTION,ALLOWED_TRAN_TYPES,ALLOWED_DEV_NUM
         TOKEN_EXPIRY = config.get("TOKEN_EXPIRY") * 60
         SINGLE_SOL = config.get("SINGLE_SOL")
         MIN_TOKEN_CAP = config.get("MIN_TOKEN_CAP")
@@ -150,6 +151,7 @@ async def fetch_config(server_id = SERVER_ID):
         LIQUIDITY = 4000 #流动性
         ALTER_PROPORTION = 0.6 #感叹号占比
         ALLOWED_TRAN_TYPES = [2] #允许的交易类型
+        ALLOWED_DEV_NUM = 15 #dev数据上限 代表DEV团队整体持有多少
         BLANCE = config.get("BLANCE")
         CALL_BACK_URL = config.get("CALL_BACK_URL")
         logging.info("配置加载成功")
@@ -187,7 +189,9 @@ async def cleanup_subscriptions():
             logging.info(f"更新SOL的价格")
             sol_price['create_time'] = current_time
             sol_price['price'] = await get_sol_for_usdt()
-
+            
+        #获取拉黑的交易所地址
+        fetch_exchange_wallets()
 
         # 遍历所有订阅，最后一次交易时间超时 12.31日更新 并且要低于市值设定最小值或者高于市值设定最大值
         for mint_address, data in subscriptions.items():
@@ -385,11 +389,12 @@ def ljy_zzqb(item,transactions_data):
     time_diff = (now - block_time).days
     if time_diff < 1:
         return
-    transfer_data = fetch_user_transfer(item['traderPublicKey'])
+    start_time = int((now - timedelta(hours=72)).timestamp())#获取近72小时内的转账记录
+    transfer_data = fetch_user_transfer(start_time,now.timestamp(),item['traderPublicKey'])
     father_address = None
     for value in transfer_data:
         sol_amount = value['amount']/(10**value['token_decimals'])
-        if sol_amount>=2 and value['from_address'] not in ['3vxheE5C46XzK4XftziRhwAf8QAfipD7HXXWj25mgkom','59aPdjRaWSeCUpRy7eiuiRAfyUS6TMrUWoy4RFA2CF55','5VCwKtCXgCJ6kit5FybXjvriW3xELsFDhYrPSqtJNmcD','AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2','5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9','BmFdpraQhkiDQE6SnfG5omcA1VwzqfXrwtNYBwWTymy6','9obNtb5GyUegcs3a1CbBkLuc5hEWynWfJC6gjz5uWQkE','ASTyfSima4LLAdDgoFGkgqoKowG1LZFDr9fAQrg7iaJZ','GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE','FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5','AobVSwdW9BbpMdJvTqeCN4hPAmh4rHm7vwLnQ5ATSyrS']:#2个以上转账 并且不是交易所地址
+        if sol_amount>=2 and value['from_address'] not in exchange_wallets:#2个以上转账 并且不是交易所地址
             father_address = value['from_address']
             break
     if not father_address:
@@ -400,22 +405,13 @@ def ljy_zzqb(item,transactions_data):
     total_balance = data.get('total_balance')
     sol = data.get('sol')
     logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
-    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
-    if alert_data is None:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
-        return
-    if alert_data > ALTER_PROPORTION:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
-        return
     if len(tokens)>=2 and total_balance >=50000:
         if check_redis_key(item,4):
             send_to_trader(mint=item['mint'],type=4) #通知交易端
         item['total_balance'] = total_balance
         item['sol'] = sol
         item['traderPublicKeyParent'] = father_address
-        item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-        symbol = subscriptions[item['mint']]['symbol']
-        item['title'] = f"转账CA:{symbol}"
+        item['title'] = f"转账CA:{item['symbol']}"
         send_telegram_notification(tg_message_html_5(item),[TELEGRAM_BOT_TOKEN_ZHUANZHANG,TELEGRAM_CHAT_ID_ZHUANZHANG],f"用户 {item['traderPublicKey']} 转账老钱包")
     
 #新版更新老钱包买单查看用户历史的买入记录
@@ -432,13 +428,6 @@ def ljy_15days(item,transactions_data):
     if time_diff <15:
         return
     logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
-    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
-    if alert_data is None:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
-        return
-    if alert_data > ALTER_PROPORTION:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
-        return
     mint = item['mint']
     mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
     redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
@@ -447,10 +436,7 @@ def ljy_15days(item,transactions_data):
         if check_redis_key(item,3):
             send_to_trader(mint=mint,type=3) #通知交易端
         item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
-        item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-        item['alert_data'] = alert_data
-        symbol = subscriptions[item['mint']]['symbol']
-        item['title'] = f"第{length-1}通知CA:{symbol}"
+        item['title'] = f"第{length-1}通知CA:{item['symbol']}"
         send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
 
 # 异步请求用户交易记录和余额
@@ -494,29 +480,29 @@ def ljy_ljy_bj(item,transactions_data):
         time_diff = (first_time - last_time) / 86400
         logging.info(f"用户 {item['traderPublicKey']} 今日买入 {sum}笔 今日第一笔和之前最后一笔交易时间差为 {time_diff} 天")
 
-        if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号，加起来超过10个sol
-            return
-        logging.info(f"代币 {item['mint']} dev检测合格")
+        # if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号，加起来超过10个sol
+        #     return
+        # logging.info(f"代币 {item['mint']} dev检测合格")
 
-        #检查感叹号数据
-        alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
-        if alert_data is None:
-            logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
-            return
-        if alert_data > ALTER_PROPORTION:
-            logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
-            return
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
-        #走播报
-        symbol = subscriptions[item['mint']]['symbol']
-        item['alert_data'] = alert_data
+        # #检查感叹号数据
+        # alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
+        # if alert_data is None:
+        #     logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
+        #     return
+        # if alert_data > ALTER_PROPORTION:
+        #     logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
+        #     return
+        # logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
+        # #走播报
+        # symbol = subscriptions[item['mint']]['symbol']
+        # item['alert_data'] = alert_data
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
-                nested_executor.submit(check_user_balance, item,f"老鲸鱼CA:{symbol}")  #老鲸鱼
-                nested_executor.submit(check_user_wallet, item,f"暴击CA:{symbol}")  #老鲸鱼暴击
+                nested_executor.submit(check_user_balance, item,f"老鲸鱼CA:{item['symbol']}")  #老鲸鱼
+                nested_executor.submit(check_user_wallet, item,f"暴击CA:{item['symbol']}")  #老鲸鱼暴击
             elif time_diff>=MIN_DAY_NUM and  sum == 0:#一天以上老鲸鱼 老鲸鱼暴击 改成了15小时就报               
-                nested_executor.submit(check_user_balance, item,f"老鲸鱼CA:{symbol}")  #老鲸鱼
-                nested_executor.submit(check_user_wallet, item,f"暴击CA:{symbol}")  #老鲸鱼暴击
+                nested_executor.submit(check_user_balance, item,f"老鲸鱼CA:{item['symbol']}")  #老鲸鱼
+                nested_executor.submit(check_user_wallet, item,f"暴击CA:{item['symbol']}")  #老鲸鱼暴击
     except Exception as e:
          logging.error("用户交易记录的异常:", e)
 
@@ -528,6 +514,28 @@ def check_user_transactions(item):
     now = datetime.now() #当前时间
     start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
     transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
+
+    #检查dev数据
+    if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号
+        return
+    logging.info(f"代币 {item['mint']} dev检测合格")
+
+    #检查感叹号数据
+    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
+    if alert_data is None:
+        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
+        return
+    if alert_data > ALTER_PROPORTION:
+        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
+        return
+    logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
+    
+    #4种type都需要用到的数据
+    symbol = subscriptions[item['mint']]['symbol']
+    item['alert_data'] = alert_data
+    item['symbol'] = symbol
+    item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+
     if item['amount'] >= SINGLE_SOL:
         #老鲸鱼和老鲸鱼暴击
         executor.submit(ljy_ljy_bj, item,transactions_data)
@@ -551,13 +559,14 @@ def check_user_balance(item,title):
                 send_to_trader(item['mint'],1)
             else:
                 logging.info(f"代币 {item['mint']} 已经通知过了")
+            if not save_success_to_redis(mint=item['mint'],type=1,address=item['traderPublicKey']):
+                logging.info(f"代币 {item['mint']} 类型1 阻止重复播报")
+                return 
             item['title'] = title
             item['sol'] = sol
             item['total_balance'] = total_balance
             item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
             send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
-            #保存通知过的
-            redis_client.set(f"{ADDRESS_SUCCESS}{item['traderPublicKey']}",json.dumps(item))
     except Exception as e:
             logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
 # 请求用户的卖出单 老金鱼暴击
@@ -592,6 +601,10 @@ def check_user_wallet(item,title):
             send_to_trader(item['mint'],2)
         else:
             logging.info(f"代币 {item['mint']} 已经通知过了")
+        
+        if not save_success_to_redis(mint=item['mint'],type=2,address=item['traderPublicKey']):
+            logging.info(f"代币 {item['mint']} 类型2 阻止重复播报")
+            return 
         hold_data["traderPublicKey"] = item['traderPublicKey']
         hold_data["title"] = title
         hold_data['mint'] = item['mint']
@@ -683,7 +696,7 @@ def fetch_mint_dev(item):
             logging.error(f"用户 {traderPublicKey} 是代币 {mint} 的创建者")
             return True
     sols = sum(record["quote_amount"] for record in data)
-    if sols>=10:
+    if sols>=ALLOWED_DEV_NUM:
         logging.error(f"代币 {mint} dev团队持仓 {sols} sol超过设置值")
         return True
     return False
@@ -736,7 +749,7 @@ def send_to_trader(mint,type):
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logging.info(f"代币 {mint} 发送交易失败 代号 {type}")
-#查看是mint是否已经播报过了
+#查看是mint是否已经通知过交易端
 def check_redis_key(item,type):
     if type not in ALLOWED_TRAN_TYPES:
         logging.info(f"交易类型 {type} 不允许")
@@ -795,15 +808,25 @@ def fetch_user_wallet_holdings_show_alert(address):
             logging.error(f"用户 {address} 获取用户最近活跃失败 {res.text}")
     return None
 #请求用户转账记录
-def fetch_user_transfer(address):
-    url = f"https://pro-api.solscan.io/v2.0/account/transfer?address={address}&token=So11111111111111111111111111111111111111111&exclude_amount_zero=true&flow=in&page=1&page_size=10&sort_by=block_time&sort_order=asc"    
+def fetch_user_transfer(start_time,end_time,address):
+    url = f"https://pro-api.solscan.io/v2.0/account/transfer?address={address}&token=So11111111111111111111111111111111111111111&block_time[]={start_time}&block_time[]={end_time}&exclude_amount_zero=true&flow=in&page=1&page_size=10&sort_by=block_time&sort_order=desc"   
     response= requests.get(url,headers=headers)
     if response.status_code == 200:
         response_data =  response.json()
         return response_data.get('data', [])
     return []
-
-
+#保存每种类型通知过的避免同一种类型同一个mint重复播报
+def save_success_to_redis(mint,type,address):
+    #存放播报过的 success:mint地址/type类型 1 2 3 4
+    return  redis_client.set(f"{ADDRESS_SUCCESS}{mint}/{type}",address,nx=True)
+#获得交易所地址
+def fetch_exchange_wallets():
+    logging.info("获取拉黑的交易所地址...")
+    response = requests.get(f"{DOMAIN}/api/exchange-wallets")
+    if response.status_code == 200:
+        data = response.json()['data']
+        global exchange_wallets
+        exchange_wallets = [entry["walletAddress"] for entry in data]
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
