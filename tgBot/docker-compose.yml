@@ -1,0 +1,8 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    image: zixianwang/tgbot:0.1  # Docker Hub 上的镜像
+    container_name: telegram-bot
+    restart: always
+

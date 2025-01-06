@@ -3,7 +3,7 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Callb
 import requests  # 用于发送 Telegram API 请求
 
 # 你创建的 Bot Token
-TOKEN = '7601466837:AAHd9g8QJik3kLtjyRDq-OuYD9CcCWKAJR4'
+TOKEN = '7939824480:AAHNi55APfrU4Zh6AfQmwcFMyEizjas9vcU'
 
 def reply_message(update: Update, context: CallbackContext) -> None:
     if getattr(update, 'message', None):  # 安全地检查 message
@@ -12,7 +12,7 @@ def reply_message(update: Update, context: CallbackContext) -> None:
     elif getattr(update, 'channel_post', None):  # 安全地检查 channel_post
         print(update.channel_post)
         sender_chat_username = update.channel_post.sender_chat.username 
-        if sender_chat_username == 'solanapostalert': #特定频道
+        if sender_chat_username == 'jiaoyisuolahei': #特定频道
             parts = update.channel_post.text.split()
             if len(parts) == 2:
                 action = parts[0]  # 动作部分
