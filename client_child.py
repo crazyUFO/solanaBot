@@ -390,7 +390,7 @@ def ljy_zzqb(item,transactions_data):
     time_diff = (now - block_time).days
     if time_diff < 1:
         return
-    start_time = int((now - timedelta(hours=72)).timestamp())#获取近72小时内的转账记录
+    start_time = int((now - timedelta(days=7)).timestamp())#获取近72小时内的转账记录
     transfer_data = fetch_user_transfer(start_time,now.timestamp(),item['traderPublicKey'])
     father_address = None
     for value in transfer_data:
@@ -618,8 +618,6 @@ def check_user_wallet(item,title):
         hold_data['signature'] = item['signature']
         hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
         send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
-        # #保存通知过的
-        redis_client.set(f"{ADDRESS_SUCCESS_BAOJI}{item['traderPublicKey']}",json.dumps(hold_data))
     except Exception as e:
         logging.error("捕捉到的异常:", e)      
 # 查看用户一段时间的交易记录
