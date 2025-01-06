@@ -11,4 +11,4 @@ COPY . /app
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 启动应用
-CMD ["python", "bot.py"]
+CMD ["python", "tgBot.py"]
