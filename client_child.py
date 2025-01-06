@@ -59,6 +59,7 @@ MINT_POOL_DATA = "mint_pool_data:"#代币流动性缓存10秒
 #2025.1.2日更新增加新播报需求
 MINT_15DAYS_ADDRESS = "mint_15days_address:"
 mint_15days_address = {}
+mint_zhuanzhang_address={}
 exchange_wallets = [] #拉黑的交易所地址，从服务器获取
 # 初始化日志
 if not os.path.exists(LOG_DIR):
@@ -189,7 +190,7 @@ async def cleanup_subscriptions():
             logging.info(f"更新SOL的价格")
             sol_price['create_time'] = current_time
             sol_price['price'] = await get_sol_for_usdt()
-            
+
         #获取拉黑的交易所地址
         fetch_exchange_wallets()
 
@@ -408,10 +409,15 @@ def ljy_zzqb(item,transactions_data):
     if len(tokens)>=2 and total_balance >=50000:
         if check_redis_key(item,4):
             send_to_trader(mint=item['mint'],type=4) #通知交易端
+
+        #计数播报次数
+        mint_zhuanzhang_address.setdefault(item['mint'],[]).append(item['traderPublicKey'])
+        length = len(mint_zhuanzhang_address[item['mint']])
+
         item['total_balance'] = total_balance
         item['sol'] = sol
         item['traderPublicKeyParent'] = father_address
-        item['title'] = f"转账CA:{item['symbol']}"
+        item['title'] = f"第{length}通知转账CA:{item['symbol']}"
         send_telegram_notification(tg_message_html_5(item),[TELEGRAM_BOT_TOKEN_ZHUANZHANG,TELEGRAM_CHAT_ID_ZHUANZHANG],f"用户 {item['traderPublicKey']} 转账老钱包")
     
 #新版更新老钱包买单查看用户历史的买入记录

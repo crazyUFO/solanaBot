@@ -18,8 +18,11 @@ def reply_message(update: Update, context: CallbackContext) -> None:
                 action = parts[0]  # 动作部分
                 identifier = parts[1]  # ID 部分
                 if action == '拉黑':
-                    if put_in_black(identifier):
+                    status = put_in_black(identifier)
+                    if status == 201:
                         update.channel_post.reply_text(f"添加成功")
+                    elif status == 409:
+                        update.channel_post.reply_text(f"地址已存在")
                     else:
                         update.channel_post.reply_text(f"添加失败")
                 else:
@@ -34,9 +37,8 @@ def put_in_black(address):#拉黑
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         data=data
     )
-    if response.status_code == 201:        
-      return True
-    return False
+    return response.status_code     
+
 
 def main():
     """ 启动机器人并监听消息 """
