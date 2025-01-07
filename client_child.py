@@ -529,7 +529,7 @@ def check_user_transactions(item):
     logging.info(f"代币 {item['mint']} dev检测合格")
 
     #检查感叹号数据
-    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
+    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'],item['mint'])
     if alert_data is None:
         logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
         return
@@ -780,7 +780,7 @@ def fetch_token_pool(mint):
             logging.error(f"代币 {mint} 获取代币流动性失败 {res.text}")
     return {}
 #请求用户的代币列表并对感叹号的数量进行计数
-def fetch_user_wallet_holdings_show_alert(address):
+def fetch_user_wallet_holdings_show_alert(address,mint):
     data = redis_client.get(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}")
 
     if data:
@@ -794,10 +794,14 @@ def fetch_user_wallet_holdings_show_alert(address):
         if res.status_code == 200:
             data = res.json()['data']
             holdings = data.get('holdings')
+            holdings_data = []
+            for value in holdings:#去除当前这一笔买入
+                if value['token']['address'] != mint:
+                    holdings_data.append(value)
 
             # 统计 is_show_alert 为 True 的数量
-            is_show_alert_true_count = sum(1 for item in holdings if item.get("token", {}).get("is_show_alert"))
-            total_count = len(holdings) - 1 #去除当前这一笔买入
+            is_show_alert_true_count = sum(1 for item in holdings_data if item.get("token", {}).get("is_show_alert"))
+            total_count = len(holdings) 
             # 检查是否为空列表，避免除以零
             if total_count <= 0:
                 proportion = None  # 如果没有数据，比例设为 0
