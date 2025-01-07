@@ -749,15 +749,15 @@ def send_to_trader(mint,type):
         headers = {'Content-Type': 'application/json'}
         # 使用 json= 参数，requests 会自动处理将字典转换为 JSON 格式并设置 Content-Type
         response = requests.post(CALL_BACK_URL, json=params, headers=headers)  # 设置超时为 10 秒
-        logging.info(f"代币 {mint} 已经发送到交易端 代号 {type}")
         # 如果响应状态码不是 200，会抛出异常
         response.raise_for_status()
+        logging.info(f"代币 {mint} 已经发送到交易端 代号 {type}")
     except requests.exceptions.RequestException as e:
         logging.info(f"代币 {mint} 发送交易失败 代号 {type}")
 #查看是mint是否已经通知过交易端
 def check_redis_key(item,type):
     if type not in ALLOWED_TRAN_TYPES:
-        logging.info(f"交易类型 {type} 不允许")
+        logging.info(f"代币 {item['mint']} 用户 {item['traderPublicKey']} 交易类型 {type} 不允许")
         return False
     return redis_client.set(f"{MINT_SUCCESS}{item['mint']}", json.dumps(item), nx=True, ex=int(86400 * MIN_DAY_NUM))
 #获取代币流动性
