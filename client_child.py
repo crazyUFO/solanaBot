@@ -411,6 +411,7 @@ def ljy_zzqb(item,transactions_data):
             send_to_trader(mint=item['mint'],type=4) #通知交易端
 
         #计数播报次数
+        global mint_zhuanzhang_address
         mint_zhuanzhang_address.setdefault(item['mint'],[]).append(item['traderPublicKey'])
         length = len(mint_zhuanzhang_address[item['mint']])
 
@@ -435,6 +436,7 @@ def ljy_15days(item,transactions_data):
         return
     logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
     mint = item['mint']
+    global mint_15days_address
     mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
     redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
     length = len(mint_15days_address[mint])
@@ -571,7 +573,6 @@ def check_user_balance(item,title):
             item['title'] = title
             item['sol'] = sol
             item['total_balance'] = total_balance
-            item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
             send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
     except Exception as e:
             logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
@@ -592,7 +593,7 @@ def check_user_wallet(item,title):
             logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TOTAL_PROFIT}")
             return
         #获取余额
-        if (item['marketCapSol'] * sol_price['price']) < MIN_TOKEN_CAP:#老鲸鱼暴击的条件 小于设定的市值时 
+        if item['market_cap'] < MIN_TOKEN_CAP:#老鲸鱼暴击的条件 小于设定的市值时 
             logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {MIN_TOKEN_CAP} 不满足")
             balance_data = fetch_user_account_sol(item['traderPublicKey'])
             sol = balance_data.get('sol')
@@ -616,7 +617,7 @@ def check_user_wallet(item,title):
         hold_data['mint'] = item['mint']
         hold_data['amount'] = item['amount']
         hold_data['signature'] = item['signature']
-        hold_data['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+        hold_data['market_cap'] = item['market_cap']#市值
         send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
     except Exception as e:
         logging.error("捕捉到的异常:", e)      
@@ -796,9 +797,9 @@ def fetch_user_wallet_holdings_show_alert(address):
 
             # 统计 is_show_alert 为 True 的数量
             is_show_alert_true_count = sum(1 for item in holdings if item.get("token", {}).get("is_show_alert"))
-            total_count = len(holdings)
+            total_count = len(holdings) - 1 #去除当前这一笔买入
             # 检查是否为空列表，避免除以零
-            if total_count == 0:
+            if total_count <= 0:
                 proportion = None  # 如果没有数据，比例设为 0
             else:
                 proportion = is_show_alert_true_count / total_count
