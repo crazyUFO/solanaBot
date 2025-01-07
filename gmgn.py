@@ -305,3 +305,16 @@ class gmgn:
         proxies = proxies
         return self.session.get(url, headers=self.headers,proxy=proxies)
     
+    def getTokenTopHolders(self,token: str = None, params: str = None,proxies:dict = None) -> dict:
+        """
+        获取GMGN上一个token的交易top持仓数据
+        """
+        if not token:
+            return "You must input a token address."
+        if not params:
+            return "You must input a params."
+        url = f"https://gmgn.ai/api/v1/tokens/top_holders/sol/{token}?{params}"
+        
+        # 设置代理
+        proxies = proxies
+        return self.session.get(url, headers=self.headers,proxy=proxies)

@@ -138,7 +138,7 @@ async def fetch_config(server_id = SERVER_ID):
         response.raise_for_status()  # 如果请求失败，则抛出异常
         data = response.json()['data']
         config = json.loads(data.get('settings'))
-        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY,ALTER_PROPORTION,ALLOWED_TRAN_TYPES,ALLOWED_DEV_NUM
+        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY,ALTER_PROPORTION,ALLOWED_TRAN_TYPES,ALLOWED_DEV_NUM_HAS_CHILD,ALLOWED_DEV_NUM
         TOKEN_EXPIRY = config.get("TOKEN_EXPIRY") * 60
         SINGLE_SOL = config.get("SINGLE_SOL")
         MIN_TOKEN_CAP = config.get("MIN_TOKEN_CAP")
@@ -152,7 +152,8 @@ async def fetch_config(server_id = SERVER_ID):
         LIQUIDITY = 4000 #流动性
         ALTER_PROPORTION = 0.6 #感叹号占比
         ALLOWED_TRAN_TYPES = [1,2,3,4] #允许的交易类型
-        ALLOWED_DEV_NUM = 15 #dev数据上限 代表DEV团队整体持有多少
+        ALLOWED_DEV_NUM_HAS_CHILD = 15 #dev数据上限 代表DEV团队整体持有多少 有小号
+        ALLOWED_DEV_NUM = 6 #没有小号
         BLANCE = config.get("BLANCE")
         CALL_BACK_URL = config.get("CALL_BACK_URL")
         logging.info("配置加载成功")
@@ -373,6 +374,44 @@ def transactions_message_no_list(data):
 #     else:
 #         logging.error(f"请求交易数据数据失败: {response.status_code} - { response.text()}")
 
+
+def check_user_transactions(item):
+    '''
+    为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
+    '''
+    now = datetime.now() #当前时间
+    start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
+    transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
+
+    #检查dev数据
+    if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号
+        return
+    logging.info(f"代币 {item['mint']} dev检测合格")
+
+    #检查感叹号数据
+    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'],item['mint'])
+    if alert_data is None:
+        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
+        return
+    if alert_data > ALTER_PROPORTION:
+        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
+        return
+    logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
+    
+    #4种type都需要用到的数据
+    symbol = subscriptions[item['mint']]['symbol']
+    item['alert_data'] = alert_data
+    item['symbol'] = symbol
+    item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+
+    if item['amount'] >= SINGLE_SOL:
+        #老鲸鱼和老鲸鱼暴击
+        executor.submit(ljy_ljy_bj, item,transactions_data)
+    #新版15天钱包播报
+    executor.submit(ljy_15days, item,transactions_data)
+    #新版老钱包转账播报
+    executor.submit(ljy_zzqb, item,transactions_data)
+
 #新版更新老鲸鱼转账钱包
 def ljy_zzqb(item,transactions_data):
     '''
@@ -488,22 +527,6 @@ def ljy_ljy_bj(item,transactions_data):
         time_diff = (first_time - last_time) / 86400
         logging.info(f"用户 {item['traderPublicKey']} 今日买入 {sum}笔 今日第一笔和之前最后一笔交易时间差为 {time_diff} 天")
 
-        # if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号，加起来超过10个sol
-        #     return
-        # logging.info(f"代币 {item['mint']} dev检测合格")
-
-        # #检查感叹号数据
-        # alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'])
-        # if alert_data is None:
-        #     logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
-        #     return
-        # if alert_data > ALTER_PROPORTION:
-        #     logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
-        #     return
-        # logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
-        # #走播报
-        # symbol = subscriptions[item['mint']]['symbol']
-        # item['alert_data'] = alert_data
         with ThreadPoolExecutor(max_workers=20) as nested_executor:  
             if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
                 nested_executor.submit(check_user_balance, item,f"老鲸鱼CA:{item['symbol']}")  #老鲸鱼
@@ -515,100 +538,61 @@ def ljy_ljy_bj(item,transactions_data):
          logging.error("用户交易记录的异常:", e)
 
 
-def check_user_transactions(item):
-    '''
-    为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
-    '''
-    now = datetime.now() #当前时间
-    start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
-    transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
-
-    #检查dev数据
-    if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号
-        return
-    logging.info(f"代币 {item['mint']} dev检测合格")
-
-    #检查感叹号数据
-    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'],item['mint'])
-    if alert_data is None:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
-        return
-    if alert_data > ALTER_PROPORTION:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
-        return
-    logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
-    
-    #4种type都需要用到的数据
-    symbol = subscriptions[item['mint']]['symbol']
-    item['alert_data'] = alert_data
-    item['symbol'] = symbol
-    item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-
-    if item['amount'] >= SINGLE_SOL:
-        #老鲸鱼和老鲸鱼暴击
-        executor.submit(ljy_ljy_bj, item,transactions_data)
-    #新版15天钱包播报
-    executor.submit(ljy_15days, item,transactions_data)
-    #新版老钱包转账播报
-    executor.submit(ljy_zzqb, item,transactions_data)
-
-
 # 请求用户的账户余额并通知 老鲸鱼播报
 def check_user_balance(item,title):
     try:
+        #市值检测
+        if item['market_cap'] < MIN_TOKEN_CAP:#老鲸鱼暴击的条件 小于设定的市值时 
+            logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {MIN_TOKEN_CAP} 不满足")
+            return
+        # tokens 余额检测
         data = fetch_user_tokens(item['traderPublicKey'])
         total_balance = data.get('total_balance')
         sol = data.get('sol')
         logging.info(f"用户 {item['traderPublicKey']} tokens:{total_balance} sol:{sol}")
-        #if total_balance >= TOKEN_BALANCE or sol >= BLANCE:
-        if total_balance >= TOKEN_BALANCE:
-            #先通知交易端 #老鲸鱼
-            if check_redis_key(item,1):
-                send_to_trader(item['mint'],1)
-            else:
-                logging.info(f"代币 {item['mint']} 已经通知过了")
-            if not save_success_to_redis(mint=item['mint'],type=1,address=item['traderPublicKey']):
-                logging.info(f"代币 {item['mint']} 类型1 阻止重复播报")
-                return 
-            item['title'] = title
-            item['sol'] = sol
-            item['total_balance'] = total_balance
-            send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
+        if total_balance < TOKEN_BALANCE:
+            return
+        
+        #检测 并发送到交易端
+        if check_redis_key(item,1):
+            send_to_trader(item['mint'],1)
+        else:
+            logging.info(f"代币 {item['mint']} 已经通知过了")
+        
+        #检测重复并播报到TG群
+        if not save_success_to_redis(mint=item['mint'],type=1,address=item['traderPublicKey']):
+            logging.info(f"代币 {item['mint']} 类型1 阻止重复播报")
+            return 
+        item['title'] = title
+        item['sol'] = sol
+        item['total_balance'] = total_balance
+        send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
+
     except Exception as e:
             logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
 # 请求用户的卖出单 老金鱼暴击
 def check_user_wallet(item,title):
     logging.info(f"用户 {item['traderPublicKey']} 请求老鲸鱼暴击 {item['mint']}")
     try:
-        data = fetch_user_wallet_holdings(item['traderPublicKey'])
-        if not data:
-            logging.info(f"用户 {item['traderPublicKey']} 代币盈亏data是空")
-            return
-        holdings = data.get('holdings',[])
-        if not holdings:
-            logging.info(f"用户 {item['traderPublicKey']} 代币盈亏holdings是空")
-            return 
-        hold_data = holdings[0]
-        if float(hold_data['realized_profit']) < TOTAL_PROFIT:
-            logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TOTAL_PROFIT}")
-            return
-        #获取余额
+        #市值检测
         if item['market_cap'] < MIN_TOKEN_CAP:#老鲸鱼暴击的条件 小于设定的市值时 
             logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {MIN_TOKEN_CAP} 不满足")
-            balance_data = fetch_user_account_sol(item['traderPublicKey'])
-            sol = balance_data.get('sol')
-            if sol < BLANCE:
-                logging.error(f"用户 {item['traderPublicKey']} 余额 sol {sol} 设定 {BLANCE} 不满足")
-                data = fetch_user_tokens(item['traderPublicKey'])
-                total_balance = data.get('total_balance')
-                if total_balance < TOKEN_BALANCE:
-                    logging.error(f"用户 {item['traderPublicKey']} tokens 余额 {total_balance} 设定 {TOKEN_BALANCE} 不满足")
-                    return
+            return
+        # 单币盈利检测 大于设定值 ，并且盈利率要大于300%
+        data = fetch_user_wallet_holdings(item['traderPublicKey'])
+        if not data:
+            logging.info(f"用户 {item['traderPublicKey']} 代币盈亏数据是空")
+            return
+        hold_data = data
+        if float(hold_data['realized_profit']) < TOTAL_PROFIT or float(hold_data['realized_pnl']) < 3:
+            logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TOTAL_PROFIT} 盈利率为{(float(hold_data['realized_pnl']) * 100):.2f}")
+            return
+        #检测 并发送到交易端
         if check_redis_key(item,2):
             send_to_trader(item['mint'],2)
         else:
             logging.info(f"代币 {item['mint']} 已经通知过了")
-        
+        #检测重复并播报到TG群
         if not save_success_to_redis(mint=item['mint'],type=2,address=item['traderPublicKey']):
             logging.info(f"代币 {item['mint']} 类型2 阻止重复播报")
             return 
@@ -669,10 +653,18 @@ def fetch_user_wallet_holdings(address):
         }
         res = gmgn_api.getWalletHoldings(walletAddress=address,params="limit=1&orderby=realized_profit&direction=desc&showsmall=true&sellout=true&tx30d=true",proxies=proxies)
         if res.status_code == 200:
-            data = res.json()['data']
-            logging.info(f"用户 {address} 代币盈利已缓存")
-            redis_client.set(f"{ADDRESS_HOLDINGS_DATA}{address}",json.dumps(data),ex=int(86400 * MIN_DAY_NUM))
-            return data
+            data = res.json().get('data', {})
+            # 默认 `holdings` 字段为空列表，避免字段不存在的情况
+            holdings = data.get('holdings', [])
+            holdings_data = {}
+             # 如果 `holdings` 存在且非空，取第一个元素
+            if holdings:
+                holdings_data = holdings[0]
+                logging.info(f"用户 {address} 代币盈利已缓存")
+                redis_client.set(f"{ADDRESS_HOLDINGS_DATA}{address}",json.dumps(holdings_data),ex=int(86400 * MIN_DAY_NUM))
+            else:
+                 logging.info(f"用户 {address} 没有有效的代币盈利数据，不进行缓存")
+            return holdings_data
         else:
             logging.error(f"用户 {address} 获取代币盈亏失败 {res.text}")
     return {}
@@ -696,14 +688,27 @@ def fetch_mint_dev(item):
             redis_client.set(f"{MINT_DEV_DATA}{mint}",json.dumps(data),ex=10)
         else:
             logging.error(f"代币 {mint} 获取dev情况失败 {res.text}")
+    #检查是否是创建者
     for value in data:
         if "creator" in value['maker_token_tags'] and value['maker'] == traderPublicKey:
             logging.error(f"用户 {traderPublicKey} 是代币 {mint} 的创建者")
             return True
+        
+    #检查dev团队是否跑路，跑路直接放行通过
+    unrealized_profits = sum(record["unrealized_profit"] for record in data)
+    if round(unrealized_profits, 5) <=0:
+        return False
+    
+    #检查dev团队持仓 
     sols = sum(record["quote_amount"] for record in data)
-    if sols>=ALLOWED_DEV_NUM:
-        logging.error(f"代币 {mint} dev团队持仓 {sols} sol超过设置值")
-        return True
+    if len(data) > 1:#有小号
+        if sols>=ALLOWED_DEV_NUM_HAS_CHILD:
+            logging.error(f"代币 {mint} dev团队存在小号 持仓 {sols} sol超过 {ALLOWED_DEV_NUM_HAS_CHILD}")
+            return True
+    else:#没小号
+        if sols>=ALLOWED_DEV_NUM:
+            logging.error(f"代币 {mint} dev团队不存在小号 持仓 {sols} sol超过 {ALLOWED_DEV_NUM}")
+            return True
     return False
 #请求用户的token和sol总和
 def fetch_user_tokens(address):
