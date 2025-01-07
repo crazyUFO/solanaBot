@@ -602,6 +602,7 @@ def check_user_wallet(item,title):
         hold_data['amount'] = item['amount']
         hold_data['signature'] = item['signature']
         hold_data['market_cap'] = item['market_cap']#市值
+        hold_data['alert_data'] = item['alert_data']#黑盘占比
         send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
     except Exception as e:
         logging.error("捕捉到的异常:", e)      
