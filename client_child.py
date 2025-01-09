@@ -728,10 +728,9 @@ def fetch_user_tokens(address):
 #单独的sol取出接口
 def fetch_user_account_sol(address):
     data = redis_client.get(f"{ADDRESS_TOKENS_DATA}{address}")
-    account_data = json.loads(data)
-    if account_data and "sol" in account_data:
+    if data and "sol" in json.loads(data):
         logging.info(f"用户 {address} sol 缓存")
-        return account_data  
+        return json.loads(data)  
     response = requests.get(f"https://pro-api.solscan.io/v2.0/account/detail?address={address}", headers=headers)
     if response.status_code == 200:
         response_data =  response.json().get('data')
@@ -807,7 +806,7 @@ def fetch_user_wallet_holdings_show_alert(address,mint):
 
             # 统计 is_show_alert 为 True 的数量
             is_show_alert_true_count = sum(1 for item in holdings_data if item.get("token", {}).get("is_show_alert"))
-            total_count = len(holdings) 
+            total_count = len(holdings_data) 
             # 检查是否为空列表，避免除以零
             if total_count <= 0:
                 proportion = None  # 如果没有数据，比例设为 0
