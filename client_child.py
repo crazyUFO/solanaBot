@@ -445,7 +445,7 @@ def ljy_zzqb(item,transactions_data):
     total_balance = data.get('total_balance')
     sol = data.get('sol')
     logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
-    if len(tokens)>=2 and total_balance >=50000:
+    if len(tokens)>=2 and total_balance >=20000:
         if check_redis_key(item,4):
             send_to_trader(mint=item['mint'],type=4) #通知交易端
 
