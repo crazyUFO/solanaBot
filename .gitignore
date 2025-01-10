@@ -18,4 +18,5 @@ config.ini
 testws.py
 testchuanyun.py
 testgmgn.py
+*.csv
 
