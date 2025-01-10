@@ -14,6 +14,7 @@ import time
 import configparser
 from cloudbypass import Proxy
 from gmgn import gmgn
+from serverFun import ServerFun
 from tg_htmls import tg_message_html_1,tg_message_html_3, tg_message_html_4, tg_message_html_5
 # 创建配置解析器对象
 config = configparser.ConfigParser()
@@ -102,7 +103,8 @@ sol_price = {"create_time": None, "price": 0}
 
 # 初始化 gmgn API
 gmgn_api = gmgn()
-
+# 初始化 服务器API
+server_fun_api = ServerFun(domain = DOMAIN)
 # 全局请求头（初始为空）
 headers = {}
 async def redis_get_settings():
@@ -134,7 +136,7 @@ async def redis_get_settings():
 # 获取远程配置函数
 async def fetch_config(server_id = SERVER_ID):
     try:
-        response = requests.get(f"{DOMAIN}/api/nodes/{server_id}")
+        response = server_fun_api.getConfigById(server_id=server_id)
         response.raise_for_status()  # 如果请求失败，则抛出异常
         data = response.json()['data']
         config = json.loads(data.get('settings'))
@@ -403,6 +405,7 @@ def check_user_transactions(item):
     item['alert_data'] = alert_data
     item['symbol'] = symbol
     item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+    item['isSentToExchange'] = 0 #是否已经发送到交易端
 
     if item['amount'] >= SINGLE_SOL:
         #老鲸鱼和老鲸鱼暴击
@@ -447,7 +450,8 @@ def ljy_zzqb(item,transactions_data):
     logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
     if len(tokens)>=2 and total_balance >=20000:
         if check_redis_key(item,4):
-            send_to_trader(mint=item['mint'],type=4) #通知交易端
+            if send_to_trader(mint=item['mint'],type=4): #通知交易端
+                item['isSentToExchange'] = 1 #是否已经发送到交易端
 
         #计数播报次数
         global mint_zhuanzhang_address
@@ -459,7 +463,10 @@ def ljy_zzqb(item,transactions_data):
         item['traderPublicKeyParent'] = father_address
         item['title'] = f"第{length}通知转账CA:{item['symbol']}"
         send_telegram_notification(tg_message_html_5(item),[TELEGRAM_BOT_TOKEN_ZHUANZHANG,TELEGRAM_CHAT_ID_ZHUANZHANG],f"用户 {item['traderPublicKey']} 转账老钱包")
-    
+
+        #保存播报记录
+        item['type'] = 4
+        server_fun_api.saveTransaction(item)
 #新版更新老钱包买单查看用户历史的买入记录
 def ljy_15days(item,transactions_data):
     '''
@@ -481,11 +488,15 @@ def ljy_15days(item,transactions_data):
     length = len(mint_15days_address[mint])
     if length >=2:
         if check_redis_key(item,3):
-            send_to_trader(mint=mint,type=3) #通知交易端
+            if send_to_trader(mint=mint,type=3): #通知交易端
+                item['isSentToExchange'] = 1 #是否已经发送到交易端
         item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
         item['title'] = f"第{length-1}通知CA:{item['symbol']}"
         send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
 
+        #保存播报记录
+        item['type'] = 3
+        server_fun_api.saveTransaction(item)
 # 异步请求用户交易记录和余额
 def ljy_ljy_bj(item,transactions_data):
     '''
@@ -555,7 +566,8 @@ def check_user_balance(item,title):
         
         #检测 并发送到交易端
         if check_redis_key(item,1):
-            send_to_trader(item['mint'],1)
+            if send_to_trader(item['mint'],1):
+                item['isSentToExchange'] = 1 #是否已经发送到交易端
         else:
             logging.info(f"代币 {item['mint']} 已经通知过了")
         
@@ -568,6 +580,9 @@ def check_user_balance(item,title):
         item['total_balance'] = total_balance
         send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
 
+        #保存播报记录
+        item['type'] = 1 
+        server_fun_api.saveTransaction(item)
     except Exception as e:
             logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
 # 请求用户的卖出单 老金鱼暴击
@@ -589,7 +604,8 @@ def check_user_wallet(item,title):
             return
         #检测 并发送到交易端
         if check_redis_key(item,2):
-            send_to_trader(item['mint'],2)
+           if send_to_trader(item['mint'],2):
+                item['isSentToExchange'] = 1 #是否已经发送到交易端
         else:
             logging.info(f"代币 {item['mint']} 已经通知过了")
         #检测重复并播报到TG群
@@ -604,6 +620,10 @@ def check_user_wallet(item,title):
         hold_data['market_cap'] = item['market_cap']#市值
         hold_data['alert_data'] = item['alert_data']#黑盘占比
         send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
+
+        #保存播报记录
+        item['type'] = 2 
+        server_fun_api.saveTransaction(item)
     except Exception as e:
         logging.error("捕捉到的异常:", e)      
 # 查看用户一段时间的交易记录
@@ -744,7 +764,7 @@ def fetch_user_account_sol(address):
 def send_to_trader(mint,type):
     if not CALL_BACK_URL:
         logging.info(f"回调地址没有填写")
-        return 
+        return False
     try:
         params = {
             'ca': mint,
@@ -757,8 +777,10 @@ def send_to_trader(mint,type):
         # 如果响应状态码不是 200，会抛出异常
         response.raise_for_status()
         logging.info(f"代币 {mint} 已经发送到交易端 代号 {type}")
+        return True
     except requests.exceptions.RequestException as e:
         logging.info(f"代币 {mint} 发送交易失败 代号 {type}")
+        return False
 #查看是mint是否已经通知过交易端
 def check_redis_key(item,type):
     if type not in ALLOWED_TRAN_TYPES:
@@ -836,7 +858,7 @@ def save_success_to_redis(mint,type,address):
 #获得交易所地址
 def fetch_exchange_wallets():
     logging.info("获取拉黑的交易所地址...")
-    response = requests.get(f"{DOMAIN}/api/exchange-wallets")
+    response = server_fun_api.getExchangeWallets()
     if response.status_code == 200:
         data = response.json()['data']
         global exchange_wallets
