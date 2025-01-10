@@ -426,8 +426,8 @@ def ljy_zzqb(item,transactions_data):
         return
     now = datetime.now() #当前时间
     block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
-    time_diff = (now - block_time).days
-    if time_diff < 1:
+    time_diff = (now - block_time).total_seconds()
+    if time_diff < 12 * 3600: #计算小时数
         return
     start_time = int((now - timedelta(days=7)).timestamp())#获取近72小时内的转账记录
     transfer_data = fetch_user_transfer(start_time,now.timestamp(),item['traderPublicKey'])
