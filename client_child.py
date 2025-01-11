@@ -59,8 +59,8 @@ ADDRESS_TOKENS_DATA = "address_tokens_data:" #用户tokens sol 余额 缓存1小
 MINT_POOL_DATA = "mint_pool_data:"#代币流动性缓存10秒
 #2025.1.2日更新增加新播报需求
 MINT_15DAYS_ADDRESS = "mint_15days_address:"
+MINT_ZHUANZHANG_ADDRESS = "mint_zhuanzhang_address:"
 mint_15days_address = {}
-mint_zhuanzhang_address={}
 exchange_wallets = [] #拉黑的交易所地址，从服务器获取
 # 初始化日志
 if not os.path.exists(LOG_DIR):
@@ -454,45 +454,70 @@ def ljy_zzqb(item,transactions_data):
                 item['isSentToExchange'] = 1 #是否已经发送到交易端
 
         #计数播报次数
-        global mint_zhuanzhang_address
-        mint_zhuanzhang_address.setdefault(item['mint'],[]).append(item['traderPublicKey'])
-        length = len(mint_zhuanzhang_address[item['mint']])
+        # 使用 Redis 的 incr 命令增加计数
+        key = f"{MINT_ZHUANZHANG_ADDRESS}{item['mint']}:trade_count"
+        redis_client.incr(key)
+        trade_count = int(redis_client.get(key))
 
         item['total_balance'] = total_balance
         item['sol'] = sol
         item['traderPublicKeyParent'] = father_address
-        item['title'] = f"第{length}通知转账CA:{item['symbol']}"
+        item['title'] = f"第{trade_count}通知转账CA:{item['symbol']}"
         send_telegram_notification(tg_message_html_5(item),[TELEGRAM_BOT_TOKEN_ZHUANZHANG,TELEGRAM_CHAT_ID_ZHUANZHANG],f"用户 {item['traderPublicKey']} 转账老钱包")
 
         #保存播报记录
         item['type'] = 4
         server_fun_api.saveTransaction(item)
-#新版更新老钱包买单查看用户历史的买入记录
-def ljy_15days(item,transactions_data):
+        
+def ljy_15days(item, transactions_data):
     '''
-        #2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
+        2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
     '''
-    if len(transactions_data)==0:
+    if len(transactions_data) == 0:
         logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号（15天钱包的方法）")
         return
-    now = datetime.now() #当前时间
+
+    now = datetime.now()  # 当前时间
     block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
     time_diff = (now - block_time).days
-    if time_diff <15:
+    
+    if time_diff < 15:
         return
+
     logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
     mint = item['mint']
-    global mint_15days_address
-    mint_15days_address.setdefault(mint,[]).append(item['traderPublicKey'])
-    redis_client.set(f"{MINT_15DAYS_ADDRESS}{item['mint']}",json.dumps(mint_15days_address[mint]),ex=86400)
-    length = len(mint_15days_address[mint])
-    if length >=2:
-        if check_redis_key(item,3):
-            if send_to_trader(mint=mint,type=3): #通知交易端
-                item['isSentToExchange'] = 1 #是否已经发送到交易端
-        item['traderPublicKeyOld'] = mint_15days_address[mint][length-2]
-        item['title'] = f"第{length-1}通知CA:{item['symbol']}"
-        send_telegram_notification(tg_message_html_4(item),[TELEGRAM_BOT_TOKEN_15DAYS,TELEGRAM_CHAT_ID_15DAYS],f"代币 {mint} 15天钱包")
+    
+    # 使用 Redis 记录每个 mint 地址符合条件的钱包地址
+    redis_key = f"{MINT_15DAYS_ADDRESS}{mint}"
+    
+    # 从 Redis 获取当前符合条件的钱包地址列表
+    mint_15days_address = redis_client.get(redis_key)
+    if mint_15days_address:
+        mint_15days_address = json.loads(mint_15days_address)
+    else:
+        mint_15days_address = []
+    
+    # 将当前的钱包地址加入到符合条件的钱包地址列表中
+    mint_15days_address.append(item['traderPublicKey'])
+    
+    # 将更新后的列表存储回 Redis
+    redis_client.set(redis_key, json.dumps(mint_15days_address), ex=86400)
+
+    # 使用 Redis 计数器记录符合条件的钱包数量
+    counter_key = f"{redis_key}:count"  # 计数器键名
+    redis_client.incr(counter_key)  # 增加计数器值
+    
+    # 获取当前符合条件的钱包地址数量
+    wallet_count = int(redis_client.get(counter_key))  # 获取当前符合条件的钱包数量
+
+    if wallet_count >= 2:
+        if check_redis_key(item, 3):
+            if send_to_trader(mint=mint, type=3):  # 通知交易端
+                item['isSentToExchange'] = 1  # 是否已经发送到交易端
+        
+        item['traderPublicKeyOld'] = mint_15days_address[wallet_count - 2]
+        item['title'] = f"第{wallet_count - 1}通知CA:{item['symbol']}"
+        send_telegram_notification(tg_message_html_4(item), [TELEGRAM_BOT_TOKEN_15DAYS, TELEGRAM_CHAT_ID_15DAYS], f"代币 {mint} 15天钱包")
 
         #保存播报记录
         item['type'] = 3
