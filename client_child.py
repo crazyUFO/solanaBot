@@ -468,7 +468,7 @@ def ljy_zzqb(item,transactions_data):
         #保存播报记录
         item['type'] = 4
         server_fun_api.saveTransaction(item)
-        
+
 def ljy_15days(item, transactions_data):
     '''
         2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
@@ -804,7 +804,8 @@ def send_to_trader(mint,type):
         logging.info(f"代币 {mint} 已经发送到交易端 代号 {type}")
         return True
     except requests.exceptions.RequestException as e:
-        logging.info(f"代币 {mint} 发送交易失败 代号 {type}")
+        logging.info(f"代币 {mint} 发送交易失败 代号 {type} 删除redis记录 保证下次能继续发送")
+        redis_client.delete(f"{MINT_SUCCESS}{mint}")
         return False
 #查看是mint是否已经通知过交易端
 def check_redis_key(item,type):
