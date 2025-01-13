@@ -12,13 +12,13 @@ def reply_message(update: Update, context: CallbackContext) -> None:
     elif getattr(update, 'channel_post', None):  # 安全地检查 channel_post
         print(update.channel_post)
         sender_chat_username = update.channel_post.sender_chat.username 
-        if sender_chat_username == 'jiaoyisuolahei': #特定频道
+        if sender_chat_username in ['jiaoyisuolahei','jiaoyisuolahei2','qianbaolahei']: #特定频道
             parts = update.channel_post.text.split()
             if len(parts) == 2:
                 action = parts[0]  # 动作部分
                 identifier = parts[1]  # ID 部分
                 if action == '拉黑':
-                    status = put_in_black(identifier)
+                    status = put_in_black(address=identifier,sender_chat_username=sender_chat_username)
                     if status == 201:
                         update.channel_post.reply_text(f"添加成功")
                     elif status == 409:
@@ -30,8 +30,12 @@ def reply_message(update: Update, context: CallbackContext) -> None:
             else:
               update.channel_post.reply_text(f"命令格式不正确")
 
-def put_in_black(address):#拉黑
+def put_in_black(address,sender_chat_username):#拉黑
     data = {"walletAddress":address,"label":"TG操作"}
+    if sender_chat_username == 'jiaoyisuolahei' or sender_chat_username == 'jiaoyisuolahei2':#交易所拉黑
+        data['type'] = 1
+    elif sender_chat_username == 'qianbaolahei':#钱包拉黑
+        data['type'] = 2
     response = requests.post(
         "http://hidog.fun/api/exchange-wallets",
         headers={"Content-Type": "application/x-www-form-urlencoded"},

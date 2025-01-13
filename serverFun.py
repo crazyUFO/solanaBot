@@ -25,6 +25,9 @@ class ServerFun:
             "isSentToExchange": data['isSentToExchange'],
             "data":data
         }
+        #有交易失败原因的话，放进去
+        if "failureReason" in data:
+            params['failureReason'] = data['failureReason']
         response = requests.post(
             url,
             headers=self.headers,
@@ -32,13 +35,14 @@ class ServerFun:
         )
         return response
     
-    def getExchangeWallets(self) -> dict:
+    def getBlackWallets(self) -> dict:
         """
-        获取拉黑的交易所地址
+        获取拉黑的地址 type 1交易所 2钱包
         """
         url = f"{self.domain}/api/exchange-wallets"
         response = requests.get(url)
         return response
+    
     
     def getConfigById(self,server_id: int = None) -> dict:
         """

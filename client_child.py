@@ -62,6 +62,7 @@ MINT_15DAYS_ADDRESS = "mint_15days_address:"
 MINT_ZHUANZHANG_ADDRESS = "mint_zhuanzhang_address:"
 mint_15days_address = {}
 exchange_wallets = [] #拉黑的交易所地址，从服务器获取
+user_wallets = []#拉黑的钱包地址
 # 初始化日志
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
@@ -194,8 +195,8 @@ async def cleanup_subscriptions():
             sol_price['create_time'] = current_time
             sol_price['price'] = await get_sol_for_usdt()
 
-        #获取拉黑的交易所地址
-        fetch_exchange_wallets()
+        #获取拉黑的地址
+        fetch_black_wallets()
 
         # 遍历所有订阅，最后一次交易时间超时 12.31日更新 并且要低于市值设定最小值或者高于市值设定最大值
         for mint_address, data in subscriptions.items():
@@ -449,9 +450,10 @@ def ljy_zzqb(item,transactions_data):
     sol = data.get('sol')
     logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
     if len(tokens)>=2 and total_balance >=20000:
-        if check_redis_key(item,4):
-            if send_to_trader(mint=item['mint'],type=4): #通知交易端
-                item['isSentToExchange'] = 1 #是否已经发送到交易端
+
+        #检测 并发送到交易端
+        if send_to_trader(item=item,type=4):
+            item['isSentToExchange'] = 1 #是否已经发送到交易端
 
         #计数播报次数
         # 使用 Redis 的 incr 命令增加计数
@@ -511,9 +513,10 @@ def ljy_15days(item, transactions_data):
     wallet_count = int(redis_client.get(counter_key))  # 获取当前符合条件的钱包数量
 
     if wallet_count >= 2:
-        if check_redis_key(item, 3):
-            if send_to_trader(mint=mint, type=3):  # 通知交易端
-                item['isSentToExchange'] = 1  # 是否已经发送到交易端
+
+        #检测 并发送到交易端
+        if send_to_trader(item=item, type=3):  # 通知交易端
+            item['isSentToExchange'] = 1  # 是否已经发送到交易端
         
         item['traderPublicKeyOld'] = mint_15days_address[wallet_count - 2]
         item['title'] = f"第{wallet_count - 1}通知CA:{item['symbol']}"
@@ -590,20 +593,15 @@ def check_user_balance(item,title):
             return
         
         #检测 并发送到交易端
-        if check_redis_key(item,1):
-            if send_to_trader(item['mint'],1):
-                item['isSentToExchange'] = 1 #是否已经发送到交易端
-        else:
-            logging.info(f"代币 {item['mint']} 已经通知过了")
+        if send_to_trader(item=item,type=1):
+            item['isSentToExchange'] = 1 #是否已经发送到交易端
         
         #检测重复并播报到TG群
-        if not save_success_to_redis(mint=item['mint'],type=1,address=item['traderPublicKey']):
-            logging.info(f"代币 {item['mint']} 类型1 阻止重复播报")
-            return 
-        item['title'] = title
-        item['sol'] = sol
-        item['total_balance'] = total_balance
-        send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
+        if save_success_to_redis(mint=item['mint'],type=1,address=item['traderPublicKey']):            
+            item['title'] = title
+            item['sol'] = sol
+            item['total_balance'] = total_balance
+            send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}")
 
         #保存播报记录
         item['type'] = 1 
@@ -628,24 +626,19 @@ def check_user_wallet(item,title):
             logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TOTAL_PROFIT} 盈利率为{(float(hold_data['realized_pnl']) * 100):.2f}")
             return
         #检测 并发送到交易端
-        if check_redis_key(item,2):
-           if send_to_trader(item['mint'],2):
-                item['isSentToExchange'] = 1 #是否已经发送到交易端
-        else:
-            logging.info(f"代币 {item['mint']} 已经通知过了")
+        if send_to_trader(item=item,type=2):
+            item['isSentToExchange'] = 1 #是否已经发送到交易端
         #检测重复并播报到TG群
-        if not save_success_to_redis(mint=item['mint'],type=2,address=item['traderPublicKey']):
-            logging.info(f"代币 {item['mint']} 类型2 阻止重复播报")
-            return 
-        hold_data["traderPublicKey"] = item['traderPublicKey']
-        hold_data["title"] = title
-        hold_data['mint'] = item['mint']
-        hold_data['amount'] = item['amount']
-        hold_data['signature'] = item['signature']
-        hold_data['market_cap'] = item['market_cap']#市值
-        hold_data['alert_data'] = item['alert_data']#黑盘占比
-        send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
-
+        if save_success_to_redis(mint=item['mint'],type=2,address=item['traderPublicKey']):
+            hold_data["traderPublicKey"] = item['traderPublicKey']
+            hold_data["title"] = title
+            hold_data['mint'] = item['mint']
+            hold_data['amount'] = item['amount']
+            hold_data['signature'] = item['signature']
+            hold_data['market_cap'] = item['market_cap']#市值
+            hold_data['alert_data'] = item['alert_data']#黑盘占比
+            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}")
+             
         #保存播报记录
         item['type'] = 2 
         server_fun_api.saveTransaction(item)
@@ -785,34 +778,57 @@ def fetch_user_account_sol(address):
         return data
     logging.info(f"用户 {address}  solana 余额接口调用失败了")
     return {"sol":0}
-#通知交易端
-def send_to_trader(mint,type):
-    if not CALL_BACK_URL:
-        logging.info(f"回调地址没有填写")
+#检测并发送到交易端
+def send_to_trader(item,type):
+    mint = item['mint']
+    traderPublicKey = item['traderPublicKey']
+    if type not in ALLOWED_TRAN_TYPES:
+        #失败原因放进去
+        item['failureReason'] = f"交易类型不允许"
+
+        logging.error(f"代币 {mint} 用户 {traderPublicKey} 交易类型 {type} 不允许")
         return False
-    try:
-        params = {
-            'ca': mint,
-            'type_id': type
-        }     
-        # 设置 headers，确保发送的内容类型为 JSON
-        headers = {'Content-Type': 'application/json'}
-        # 使用 json= 参数，requests 会自动处理将字典转换为 JSON 格式并设置 Content-Type
-        response = requests.post(CALL_BACK_URL, json=params, headers=headers)  # 设置超时为 10 秒
-        # 如果响应状态码不是 200，会抛出异常
-        response.raise_for_status()
-        logging.info(f"代币 {mint} 已经发送到交易端 代号 {type}")
+    if traderPublicKey in user_wallets:
+        #失败原因放进去
+        item['failureReason'] = f"已被拉黑阻止交易"
+
+        logging.error(f"用户 {traderPublicKey} 已被拉黑阻止交易 交易类型 {type}")
+        return False
+    if not CALL_BACK_URL:
+        #失败原因放进去
+        item['failureReason'] = f"回调地址没有填写"
+
+        logging.error(f"回调地址没有填写")
+        return False
+    #看看redis是否已经发送到交易端了
+    status = redis_client.set(f"{MINT_SUCCESS}{mint}", type, nx=True, ex=int(86400 * MIN_DAY_NUM))
+    if not status:
+        #失败原因放进去
+        item['failureReason'] = f"已经发送过交易端了"
+
+        logging.error(f"代币 {mint} 已经发送过交易端了")
+        return False
+    #开始通知交易端
+    params = {
+        'ca': mint,
+        'type_id': type
+    }     
+    # 设置 headers，确保发送的内容类型为 JSON
+    headers = {'Content-Type': 'application/json'}
+    # 使用 json= 参数，requests 会自动处理将字典转换为 JSON 格式并设置 Content-Type
+    response = requests.post(CALL_BACK_URL, json=params, headers=headers) 
+    if response.status_code == 200:
+        logging.info(f"代币 {mint} 发送到交易端 代号 {type}")
         return True
-    except requests.exceptions.RequestException as e:
-        logging.info(f"代币 {mint} 发送交易失败 代号 {type} 删除redis记录 保证下次能继续发送")
+    else:
+        #失败原因放进去
+        item['failureReason'] = f"调用交易端失败 statusCode:{response.status_code} error:{response.text}"
+        
+        logging.error(f"代币 {mint} 调用交易端失败 代号 {type} statusCode:{response.status_code} error:{response.text}")
+        logging.info(f"代币 {mint} 调用交易端失败 删掉redis记录")
         redis_client.delete(f"{MINT_SUCCESS}{mint}")
         return False
-#查看是mint是否已经通知过交易端
-def check_redis_key(item,type):
-    if type not in ALLOWED_TRAN_TYPES:
-        logging.info(f"代币 {item['mint']} 用户 {item['traderPublicKey']} 交易类型 {type} 不允许")
-        return False
-    return redis_client.set(f"{MINT_SUCCESS}{item['mint']}", json.dumps(item), nx=True, ex=int(86400 * MIN_DAY_NUM))
+
 #获取代币流动性
 def fetch_token_pool(mint):
     data = redis_client.get(f"{MINT_POOL_DATA}{mint}")
@@ -879,16 +895,26 @@ def fetch_user_transfer(start_time,end_time,address):
     return []
 #保存每种类型通知过的避免同一种类型同一个mint重复播报
 def save_success_to_redis(mint,type,address):
+    if address in user_wallets:
+        logging.error(f"用户 {address} 已被拉黑阻止播报 播报类型 {type}")
+        return False
     #存放播报过的 success:mint地址/type类型 1 2 3 4
-    return  redis_client.set(f"{ADDRESS_SUCCESS}{mint}/{type}",address,nx=True)
-#获得交易所地址
-def fetch_exchange_wallets():
-    logging.info("获取拉黑的交易所地址...")
-    response = server_fun_api.getExchangeWallets()
+    status = redis_client.set(f"{ADDRESS_SUCCESS}{mint}/{type}",address,nx=True)
+    if status:
+        return True
+    else:
+        logging.info(f"代币 {mint} 类型{type} 阻止重复播报")
+        return False
+#获得拉黑的地址
+def fetch_black_wallets():
+    logging.info("获取拉黑的地址...")
+    response = server_fun_api.getBlackWallets()
     if response.status_code == 200:
         data = response.json()['data']
-        global exchange_wallets
-        exchange_wallets = [entry["walletAddress"] for entry in data]
+        # 使用列表推导式分别获取交易所钱包和用户钱包
+        global exchange_wallets, user_wallets
+        exchange_wallets = [entry["walletAddress"] for entry in data if entry["type"] == 1]
+        user_wallets = [entry["walletAddress"] for entry in data if entry["type"] == 2]
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
