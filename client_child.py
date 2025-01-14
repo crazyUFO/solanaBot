@@ -860,10 +860,10 @@ def call_trade(mint,call_back_url,type):
     response = requests.post(call_back_url, json=params, headers=headers) 
     if response.status_code == 200:
         logging.info(f"代币 {mint} 发送到交易端地址 {call_back_url} 代号 {type}")
-        return {"success":True,"msg":f"代币 {mint} 发送到交易端地址 {call_back_url} 成功 类型 {type}"}
+        return {"success":True,"msg":f"交易端地址{call_back_url}成功"}
     else:
         logging.error(f"代币 {mint} 调用交易端地址 {call_back_url} 失败 代号 {type} statusCode:{response.status_code}")
-        return {"success":False,"msg":f"代币 {mint} 调用交易端地址 {call_back_url} 失败 类型 {type} statusCode:{response.status_code}"}
+        return {"success":False,"msg":f"调用交易端地址{call_back_url}失败statusCode:{response.status_code}"}
 #获取代币流动性
 def fetch_token_pool(mint):
     data = redis_client.get(f"{MINT_POOL_DATA}{mint}")
