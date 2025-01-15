@@ -42,9 +42,8 @@ WS_URL = config.get('General', 'WS_URL') # WebSocket 地址
 # 日志文件夹和文件名
 LOG_DIR = config.get('LOG', 'DIR')
 LOG_NAME = config.get('LOG', 'NAME')
-MINT_SUCCESS = "mint_success:"#redis存放已经播报过的盘 //1小时释放
+MINT_SUCCESS = "mint_success:"#redis存放已经发送到交易的盘
 ADDRESS_SUCCESS = "success:"#存放播报过的 success:mint地址/type类型 1 2 3 4
-ADDRESS_SUCCESS_BAOJI = "success_baoji:"#存放播报的 暴击
 ADDRESS_EXPIRY = "expiry:" #今日交易超限制，新账号，这种的就直接锁住
 # 创建线程池执行器
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
@@ -60,6 +59,8 @@ MINT_POOL_DATA = "mint_pool_data:"#代币流动性缓存10秒
 #2025.1.2日更新增加新播报需求
 MINT_15DAYS_ADDRESS = "mint_15days_address:"
 MINT_ZHUANZHANG_ADDRESS = "mint_zhuanzhang_address:"
+#2025.1.16更新 缓存所有发送到后台里的 代币 需要更新最高市值用到
+MINT_NEED_UPDATE_MAKET_CAP = "mint_need_update_maket_cap:"
 mint_15days_address = {}
 exchange_wallets = [] #拉黑的交易所地址，从服务器获取
 user_wallets = []#拉黑的钱包地址
@@ -199,12 +200,13 @@ async def cleanup_subscriptions():
         logging.info(f"更新SOL的价格 {sol_price['price']} usd")
         #获取拉黑的地址
         fetch_black_wallets()
-
+        #更新最高市值到后台
+        executor.submit(update_maket_cap_height_value)
         # 遍历所有订阅，最后一次交易时间超时 12.31日更新 并且要低于市值设定最小值或者高于市值设定最大值
-        for mint_address, data in subscriptions.items():
+        for mint_address, data in subscriptions.items():            
             market_cap_usdt = data['market_cap_sol'] * sol_price['price']
             if current_time - data['last_trade_time'] >= TOKEN_EXPIRY and (market_cap_usdt < MIN_TOKEN_CAP or market_cap_usdt >= MAX_TOKEN_CAP):
-                logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {TOKEN_EXPIRY} 分钟")
+                logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {TOKEN_EXPIRY / 60} 分钟")
                 expired_addresses.append(mint_address)
         
         # 移除过期的订阅
@@ -273,16 +275,17 @@ async def websocket_handler():
                                     if message['marketCapSol'] > subscriptions[mint]["market_cap_sol_height"]:
                                         logging.info(f"代币 {message['mint']} 更新最高市值 {subscriptions[mint]['market_cap_sol_height']} => {message['marketCapSol']}")
                                         subscriptions[mint].update({
-                                        "market_cap_sol_height":message['marketCapSol']
+                                            "market_cap_sol_height":message['marketCapSol'],
+                                            "market_cap_sol_height_need_update":True #需要进行更新了
                                         })
-                                        #await market_cap_sol_height_update_mq_list.put(message)
-                                        executor.submit(update_maket_cap_height_value,message)
+                                        #存过后台的，直接刷新市值
+                                        redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(subscriptions[mint]),xx=True,ex=86400)
                                 #扫描符合要求的订单
                                 if message['solAmount'] >= 0.3: ##2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
                                     lock_acquired = redis_client().set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁5秒", nx=True, ex=5)  # 锁5秒自动过期
                                     if lock_acquired:
                                         logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']}")
-                                        transactions_message_no_list(message)
+                                        #transactions_message_no_list(message)
                                     #await market_cap_sol_height_update_mq_list.put(message)  # 买入单推送
                                 # else:
                                 #     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount} 不满足")
@@ -320,11 +323,13 @@ async def subscribed_new_mq():
                 # 如果该 mint_address 不在订阅列表中，进行订阅
                 if mint not in subscriptions:
                     subscriptions[mint] = {
+                        "mint":mint,
                         "last_trade_time":time.time(),
                         "market_cap_sol":data['marketCapSol'],
                         "market_cap_sol_height":data['marketCapSol'],#最高市值初始化
                         "symbol":data['symbol'],
-                        "create_time_utc":data['create_time_utc']
+                        "create_time_utc":data['create_time_utc'],
+                        "market_cap_sol_height_need_update":False #更新最高市值的flag True 就是需要更新到后端
                     }
                     logging.info(f"订阅新代币 {mint} 已记录")                    
                     payload = {
@@ -450,7 +455,7 @@ def ljy_zzqb(item,transactions_data):
 
         #保存播报记录
         item['type'] = 4
-        server_fun_api.saveTransaction(item)
+        save_transaction(item)
 
 def ljy_15days(item, transactions_data):
     '''
@@ -505,7 +510,7 @@ def ljy_15days(item, transactions_data):
 
         #保存播报记录
         item['type'] = 3
-        server_fun_api.saveTransaction(item)
+        save_transaction(item)
 # 异步请求用户交易记录和余额
 def ljy_ljy_bj(item,transactions_data):
     '''
@@ -584,7 +589,7 @@ def check_user_balance(item,title):
 
         #保存播报记录
         item['type'] = 1 
-        server_fun_api.saveTransaction(item)
+        save_transaction(item)
     except Exception as e:
             logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
 # 请求用户的卖出单 老金鱼暴击
@@ -620,7 +625,7 @@ def check_user_wallet(item,title):
              
         #保存播报记录
         item['type'] = 2 
-        server_fun_api.saveTransaction(item)
+        save_transaction(item)
     except Exception as e:
         logging.error("捕捉到的异常:", e)      
 # 查看用户一段时间的交易记录
@@ -919,18 +924,39 @@ def get_utc_now():
 def redis_client():
     return redis.Redis(connection_pool=redis_pool)
 #更新最高市值
-def update_maket_cap_height_value(item):
-    try:
-        params = {
-            "ca":item['mint'],
-            "tokenMarketValueHeight":item['marketCapSol']*item['sol_price_usd']
-        }
-        print(params)
-        response = server_fun_api.updateMaketValueHeightByCa(params)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        # 捕获所有请求相关的异常，包括状态码非200
-        logging.error(f"更新最高市值接口报错 请求出错: {e}")
+def update_maket_cap_height_value():
+    cursor = 0
+    keys = []
+    # 使用 SCAN 命令遍历所有匹配的键
+    while True:
+        cursor, result =redis_client().scan(cursor=cursor, match=f"{MINT_NEED_UPDATE_MAKET_CAP}*")
+        keys.extend(result)
+        if cursor == 0:
+            break
+        # 如果没有匹配到任何键，提前退出
+    if not keys:
+        logging.info("更新最高市值没有找到符合条件的键.")
+        return
+    # 获取这些键的值
+    values = redis_client().mget(keys)
+    for value in values:
+        data = json.loads(value)
+        if data['market_cap_sol_height_need_update']:
+            try:
+                params = {
+                    "ca":data['mint'],
+                    "tokenMarketValueHeight":data['market_cap_sol_height'] * sol_price['price']
+                }
+                response = server_fun_api.updateMaketValueHeightByCa(params)
+                response.raise_for_status()
+            except requests.exceptions.RequestException as e:
+                # 捕获所有请求相关的异常，包括状态码非200
+                logging.error(f"更新最高市值接口报错 请求出错: {e}")
+#请求保存播报记录到数据库中
+def save_transaction(item):
+    server_fun_api.saveTransaction(item)
+    redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(subscriptions[item['mint']]),ex=86400)
+
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
