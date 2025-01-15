@@ -285,7 +285,7 @@ async def websocket_handler():
                                     lock_acquired = redis_client().set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁5秒", nx=True, ex=5)  # 锁5秒自动过期
                                     if lock_acquired:
                                         logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']}")
-                                        #transactions_message_no_list(message)
+                                        transactions_message_no_list(message)
                                     #await market_cap_sol_height_update_mq_list.put(message)  # 买入单推送
                                 # else:
                                 #     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount} 不满足")
