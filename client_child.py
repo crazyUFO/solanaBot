@@ -273,7 +273,6 @@ async def websocket_handler():
                                     })
                                     #刷新最高市值
                                     if message['marketCapSol'] > subscriptions[mint]["market_cap_sol_height"]:
-                                        logging.info(f"代币 {message['mint']} 更新最高市值 {subscriptions[mint]['market_cap_sol_height']} => {message['marketCapSol']}")
                                         subscriptions[mint].update({
                                             "market_cap_sol_height":message['marketCapSol'],
                                             "market_cap_sol_height_need_update":True #需要进行更新了
@@ -954,6 +953,7 @@ def update_maket_cap_height_value():
                 }
                 response = server_fun_api.updateMaketValueHeightByCa(params)
                 response.raise_for_status()
+                logging.info(f"代币 {params['ca']} 更新最高市值 => {params['market_cap_sol_height']}")
             except requests.exceptions.RequestException as e:
                 # 捕获所有请求相关的异常，包括状态码非200
                 logging.error(f"更新最高市值接口报错 请求出错: {e}")
