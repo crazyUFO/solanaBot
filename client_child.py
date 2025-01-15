@@ -814,23 +814,28 @@ def send_to_trader(item,type):
         logging.info(f"代币 {mint} 调用所有地址调用都失败 删掉redis记录")
         redis_client().delete(f"{MINT_SUCCESS}{mint}")
     return flag
-#调用交易
-def call_trade(mint,call_back_url,type):
-    #开始通知交易端
-    params = {
-        'ca': mint,
-        'type_id': type
-    }     
-    # 设置 headers，确保发送的内容类型为 JSON
-    headers = {'Content-Type': 'application/json'}
-    # 使用 json= 参数，requests 会自动处理将字典转换为 JSON 格式并设置 Content-Type
-    response = requests.post(call_back_url, json=params, headers=headers) 
-    if response.status_code == 200:
-        logging.info(f"代币 {mint} 发送到交易端地址 {call_back_url} 代号 {type}")
-        return {"success":True,"msg":f"交易端地址{call_back_url}成功"}
-    else:
-        logging.error(f"代币 {mint} 调用交易端地址 {call_back_url} 失败 代号 {type} statusCode:{response.status_code}")
-        return {"success":False,"msg":f"调用交易端地址{call_back_url}失败statusCode:{response.status_code}"}
+def call_trade(mint, call_back_url, type):
+    try:
+        # 设置请求参数
+        params = {
+            'ca': mint,
+            'type_id': type
+        }
+        # 设置 headers，确保发送的内容类型为 JSON
+        headers = {'Content-Type': 'application/json'}       
+        # 发送 POST 请求
+        response = requests.post(call_back_url, json=params, headers=headers)
+        
+        # 检查返回的状态码
+        if response.status_code == 200:
+            logging.info(f"代币 {mint} 发送到交易端地址 {call_back_url} 代号 {type}")
+            return {"success": True, "msg": f"交易端地址 {call_back_url} 成功"}
+        else:
+            logging.error(f"代币 {mint} 调用交易端地址 {call_back_url} 失败 代号 {type} statusCode:{response.status_code}")
+            return {"success": False, "msg": f"调用交易端地址 {call_back_url} 失败 statusCode: {response.status_code}"}    
+    except Exception as e:
+        logging.error(f"代币 {mint} 调用交易端地址 {call_back_url} 失败: {str(e)}")
+        return {"success": False, "msg": f"调用交易端地址 {call_back_url} 失败: {str(e)}"}
 #获取代币流动性
 def fetch_token_pool(mint):
     data = redis_client().get(f"{MINT_POOL_DATA}{mint}")

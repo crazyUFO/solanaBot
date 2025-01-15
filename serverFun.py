@@ -73,7 +73,7 @@ class ServerFun:
         )
         return response
     #计算订单购买的单价 约等于
-    def get_buy_price(item):
+    def get_buy_price(self,item):
         return (item['solAmount'] * item['sol_price_usd']) / item['tokenAmount']
         
     
