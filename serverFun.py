@@ -15,7 +15,7 @@ class ServerFun:
         params = {
             "ca": data['mint'],
             "walletAddress": data['traderPublicKey'],
-            "purchaseAmount": data['amount'],
+            "purchaseAmount": data['solAmount'],
             "tokenMarketValue": data['market_cap'],
             "tokenMarketValueHeight": data['market_cap'],
             "blackMarketRatio": data['alert_data'],
@@ -23,11 +23,20 @@ class ServerFun:
             "transactionSignature": data['signature'],
             "tokenSymbol": data['symbol'],
             "isSentToExchange": data['isSentToExchange'],
+            "tokenCreatedAt":data['mint_create_time_utc'],
+            "buyOderAt":data['create_time_utc'],
+            "buyPrice":self.get_buy_price(data),
             "data":data
         }
         #有交易失败原因的话，放进去
         if "failureReason" in data:
             params['failureReason'] = data['failureReason']
+        #如果有发送到交易所时间，放进去
+        if "sentToExchangeAt" in data:
+            params['sentToExchangeAt'] = data['sentToExchangeAt']
+        #如果有播报时间，放进去
+        if "sentToBroadcastAt" in data:
+            params['sentToBroadcastAt'] = data['sentToBroadcastAt']
         response = requests.post(
             url,
             headers=self.headers,
@@ -43,7 +52,6 @@ class ServerFun:
         response = requests.get(url)
         return response
     
-    
     def getConfigById(self,server_id: int = None) -> dict:
         """
         获取拉黑的交易所地址
@@ -53,6 +61,20 @@ class ServerFun:
         url = f"{self.domain}/api/nodes/{server_id}"
         response = requests.get(url)
         return response
+
+    def updateMaketValueHeightByCa(self,params: dict)->dict:
+        if not params:
+            return "params 参数无效"
+        url = f"{self.domain}/api/wallet-transactions/updateTokenMarketValueHeight"
+        response = requests.post(
+            url,
+            headers=self.headers,
+            json=params
+        )
+        return response
+    #计算订单购买的单价 约等于
+    def get_buy_price(item):
+        return (item['solAmount'] * item['sol_price_usd']) / item['tokenAmount']
         
     
     

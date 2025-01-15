@@ -26,7 +26,7 @@ def tg_message_html_1(item):
         title=item.get("title"),
         mint=item.get("mint"),
         traderPublicKey=item.get("traderPublicKey"),
-        amount=float(item.get("amount", 0.0)),
+        amount=float(item.get("solAmount", 0.0)),
         sol=float(item.get("sol", 0.0)),
         market_cap = float(item.get('market_cap',0)),
         alert_data = float(item.get('alert_data',0)) * 100,
@@ -66,7 +66,7 @@ def tg_message_html_2(info):
     '''.format(
         mint = info.get("mint"),
         title=info.get("title"),
-        amount=info.get('amount'),
+        amount=info.get('solAmount',0),
         signature = info.get('signature'),
         traderPublicKey=info.get("traderPublicKey"),
         balance=float(info.get("balance", 0)),
@@ -100,7 +100,7 @@ def tg_message_html_3(info):
     '''.format(
         mint = info.get("mint"),
         title=info.get("title"),
-        amount=float(info.get('amount',0)),
+        amount=float(info.get('solAmount',0)),
         realized_profit = float(info.get('realized_profit',0)),
         realized_pnl = float(info.get('realized_pnl',0)) * 100,#盈利百分比
         alert_data = float(info.get('alert_data',0)) * 100,
@@ -133,7 +133,7 @@ def tg_message_html_4(info):
     '''.format(
         mint = info.get("mint"),
         title=info.get("title"),
-        amount=float(info.get('amount',0)),
+        amount=float(info.get('solAmount',0)),
         market_cap = float(info.get('market_cap',0)),
         alert_data = float(info.get('alert_data',0)) * 100,
         signature = info.get('signature'),
@@ -165,7 +165,7 @@ def tg_message_html_5(info):
     '''.format(
         mint = info.get("mint"),
         title=info.get("title"),
-        amount=float(info.get('amount',0)),
+        amount=float(info.get('solAmount',0)),
         total_balance = float(info.get('total_balance',0)),
         sol = float(info.get('sol',0)),
         market_cap = float(info.get('market_cap',0)),
