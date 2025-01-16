@@ -422,7 +422,7 @@ def ljy_zzqb(item,transactions_data):
     transfer_data = fetch_user_transfer(start_time,now.timestamp(),item['traderPublicKey'])
     father_address = None
     for value in transfer_data:
-        sol_amount = value['solAmount']/(10**value['token_decimals'])
+        sol_amount = value['amount']/(10**value['token_decimals'])
         if sol_amount>=2 and value['from_address'] not in exchange_wallets:#2个以上转账 并且不是交易所地址
             father_address = value['from_address']
             break
