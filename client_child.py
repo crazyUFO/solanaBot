@@ -338,8 +338,8 @@ async def market_cap_sol_height_update():
     while True:
         logging.info(f"开始最高市值更新")
         #更新最高市值到后台
-        executor.submit(update_maket_cap_height_value)
-        await asyncio.sleep(300)  # 每过5分钟检查一次
+        await update_maket_cap_height_value()
+        await asyncio.sleep(60)  # 每过5分钟检查一次
 
 #订单不走列队
 def transactions_message_no_list(data):
@@ -914,7 +914,7 @@ def get_utc_now():
 def redis_client():
     return redis.Redis(connection_pool=redis_pool)
 #更新最高市值
-def update_maket_cap_height_value():
+async def update_maket_cap_height_value():
     cursor = 0
     keys = []
     # 使用 SCAN 命令遍历所有匹配的键
@@ -934,6 +934,7 @@ def update_maket_cap_height_value():
         if data['market_cap_sol_height_need_update']:
             mint = data['mint']
             maket_data = fetch_maket_data(mint=mint)
+            print(maket_data)
             if not maket_data:
                 return
             try:
@@ -950,7 +951,8 @@ def update_maket_cap_height_value():
             except requests.exceptions.RequestException as e:
                 # 捕获所有请求相关的异常，包括状态码非200
                 logging.error(f"更新最高市值接口报错 请求出错: {e}")
-        time.sleep(2)
+                return
+        await asyncio.sleep(2)
 #请求保存播报记录到数据库中
 def save_transaction(item):
     server_fun_api.saveTransaction(item)
@@ -962,7 +964,7 @@ def fetch_maket_data(mint):
     }
     now = datetime.now() #当前时间
     start_time = now - timedelta(days=1)#前一天时间
-    res = gmgn_api.getKline(token=mint,type="mcapkline",params=f"resolution=1s&from={start_time.timestamp()}&to={now.timestamp()}",proxies=proxies)
+    res = gmgn_api.getKline(token=mint,type="mcapkline",params=f"resolution=1s&from={int(start_time.timestamp())}&to={int(now.timestamp())}",proxies=proxies)
     if res.status_code == 200:
         data = res.json()['data']
         if data:
@@ -979,6 +981,7 @@ def fetch_maket_data(mint):
     else:
         logging.error(f"代币 {mint} 获取市场数据失败 {res.text}")
         return {}
+    
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
@@ -1001,7 +1004,7 @@ async def main():
     # 读取配置
     await fetch_config()
     # 等待任务完成
-    await asyncio.gather(ws_task,subscribed_new_task,market_cap_sol_height_task,cleanup_task,redis_task)
+    await asyncio.gather(subscribed_new_task,ws_task,market_cap_sol_height_task,cleanup_task,redis_task)
     
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':
