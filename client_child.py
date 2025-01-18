@@ -338,7 +338,7 @@ async def market_cap_sol_height_update():
     while True:
         logging.info(f"开始最高市值更新")
         #更新最高市值到后台
-        update_maket_cap_height_value()
+        executor.submit(update_maket_cap_height_value)
         await asyncio.sleep(300)  # 每过5分钟检查一次
 
 #订单不走列队
