@@ -318,3 +318,16 @@ class gmgn:
         # 设置代理
         proxies = proxies
         return self.session.get(url, headers=self.headers,proxy=proxies)
+    
+    def getKline(self,token:str= None,type:str= 'kline',params:str=None,proxies:dict = None)->dict:
+        '''
+            获取市场行情数据
+            type: kline mcapkline
+            params : resolution=1s&from=1737116995&to=1737203395
+        '''
+        if not token:
+            return "You must input a token address."
+        if not params:
+            return "You must input a params."
+        url = f"https://www.gmgn.cc/defi/quotation/v1/tokens/{type}/sol/{token}?{params}"
+        return self.session.get(url, headers=self.headers,proxy=proxies)
