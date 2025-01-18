@@ -61,6 +61,7 @@ MINT_15DAYS_ADDRESS = "mint_15days_address:"
 MINT_ZHUANZHANG_ADDRESS = "mint_zhuanzhang_address:"
 #2025.1.16更新 缓存所有发送到后台里的 代币 需要更新最高市值用到
 MINT_NEED_UPDATE_MAKET_CAP = "mint_need_update_maket_cap:"
+MINT_NEED_UPDATE_MAKET_CAP_LOCKED = "mint_need_update_maket_cap_locked"#因为多台服务器的原因，每次只有一台服务器进入更新
 mint_15days_address = {}
 exchange_wallets = [] #拉黑的交易所地址，从服务器获取
 user_wallets = []#拉黑的钱包地址
@@ -83,13 +84,6 @@ logger.info("日志已启动")
 # 初始化 Redis 连接
 logger.info("初始化 Redis 连接池")
 redis_pool = redis.ConnectionPool(host=REDIS_HOST, port=REDIS_PORT,password=REDIS_PWD, db=REDIS_DB,decode_responses=True, max_connections=MAX_WORKERS)
-# redis_client() = redis.StrictRedis(
-#     host=REDIS_HOST,
-#     port=REDIS_PORT,
-#     password=REDIS_PWD,
-#     db=REDIS_DB,
-#     decode_responses=True
-# )
 
 # 初始化 WebSocket 和代理
 ws = None
@@ -200,8 +194,6 @@ async def cleanup_subscriptions():
         logging.info(f"更新SOL的价格 {sol_price['price']} usd")
         #获取拉黑的地址
         fetch_black_wallets()
-        #更新最高市值到后台
-        executor.submit(update_maket_cap_height_value)
         # 遍历所有订阅，最后一次交易时间超时 12.31日更新 并且要低于市值设定最小值或者高于市值设定最大值
         for mint_address, data in subscriptions.items():            
             market_cap_usdt = data['market_cap_sol'] * sol_price['price']
@@ -223,7 +215,7 @@ async def cleanup_subscriptions():
                     "keys": chunk  
                 }
                 await ws.send(json.dumps(payload))
-                await asyncio.sleep(2)
+                await asyncio.sleep(5)
         logging.error(f"----目前进程播报----")
         logging.error(f"----创建监听队列 {subscribed_new_mq_list.qsize()} 条----")
         logging.error(f"----数据处理队列 {market_cap_sol_height_update_mq_list.qsize()} 条----")
@@ -342,18 +334,12 @@ async def subscribed_new_mq():
                 logging.error(f"订阅新代币列队出错: {e}")
 
 #最高市值更新列队
-async def market_cap_sol_height_update_mq():
+async def market_cap_sol_height_update():
     while True:
-        # 从队列中获取消息并处理
-        data= await market_cap_sol_height_update_mq_list.get()
-        try:
-            params = {
-                "ca":data['mint'],
-                "tokenMarketValueHeight":data['marketCapSol']*data['sol_price_usd']
-            }
-            server_fun_api.updateMaketValueHeightByCa(params)              
-        except Exception as e:
-            logging.error(f"处理最高市值队列出错: {e}")
+        logging.info(f"开始最高市值更新")
+        #更新最高市值到后台
+        update_maket_cap_height_value()
+        await asyncio.sleep(300)  # 每过5分钟检查一次
 
 #订单不走列队
 def transactions_message_no_list(data):
@@ -565,7 +551,7 @@ def check_user_balance(item,title):
     try:
         #市值检测
         if item['market_cap'] < MIN_TOKEN_CAP:#老鲸鱼暴击的条件 小于设定的市值时 
-            logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {MIN_TOKEN_CAP} 不满足")
+            logging.error(f"代币 {item['mint']} 的市值 {item['market_cap']} 设定 {MIN_TOKEN_CAP} 不满足")
             return
         # tokens 余额检测
         data = fetch_user_tokens(item['traderPublicKey'])
@@ -946,22 +932,53 @@ def update_maket_cap_height_value():
     for value in values:
         data = json.loads(value)
         if data['market_cap_sol_height_need_update']:
+            mint = data['mint']
+            maket_data = fetch_maket_data(mint=mint)
+            if not maket_data:
+                return
             try:
                 params = {
                     "ca":data['mint'],
-                    "tokenMarketValueHeight":data['market_cap_sol_height'] * sol_price['price']
+                    "tokenMarketValueHeight":maket_data['high'],
+                    "timeToHighMarketValue":maket_data['time_diff']
                 }
                 response = server_fun_api.updateMaketValueHeightByCa(params)
                 response.raise_for_status()
-                logging.info(f"代币 {params['ca']} 更新最高市值 => {params['market_cap_sol_height']}")
+                logging.info(f"代币 {params['ca']} 更新最高市值 => {maket_data['high']}")
+                data['market_cap_sol_height_need_update'] = False
+                redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{params['ca']}",json.dumps(data),xx=True)
             except requests.exceptions.RequestException as e:
                 # 捕获所有请求相关的异常，包括状态码非200
                 logging.error(f"更新最高市值接口报错 请求出错: {e}")
+        time.sleep(2)
 #请求保存播报记录到数据库中
 def save_transaction(item):
     server_fun_api.saveTransaction(item)
     redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(subscriptions[item['mint']]),ex=86400)
-
+#请求市场诗句
+def fetch_maket_data(mint):
+    proxies = {
+        "https":proxy_expired.get("proxy")
+    }
+    now = datetime.now() #当前时间
+    start_time = now - timedelta(days=1)#前一天时间
+    res = gmgn_api.getKline(token=mint,type="mcapkline",params=f"resolution=1s&from={start_time.timestamp()}&to={now.timestamp()}",proxies=proxies)
+    if res.status_code == 200:
+        data = res.json()['data']
+        if data:
+            # 筛选出high最大值的数据
+            max_high_data = max(data, key=lambda x: x["high"])
+            # 获取第一个元素的时间
+            first_time = int(data[0]["time"])
+            # 获取最大值对应的时间
+            max_time = int(max_high_data["time"])
+            # 计算时间差
+            time_diff = max_time - first_time
+            logging.info(f"代币 {mint} 最高市值 {max_high_data['high']} 时间差 {int(time_diff /1000)} 秒")
+        return {"high":max_high_data['high'],"time_diff":int(time_diff /1000)}
+    else:
+        logging.error(f"代币 {mint} 获取市场数据失败 {res.text}")
+        return {}
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
@@ -973,7 +990,7 @@ async def main():
     subscribed_new_task = asyncio.create_task(subscribed_new_mq())
 
     # 启动处理最高市值更新
-    market_cap_sol_height_task = asyncio.create_task(market_cap_sol_height_update_mq())
+    market_cap_sol_height_task = asyncio.create_task(market_cap_sol_height_update())
     
     # 启动交易监听队列任务
     # transactions_task= asyncio.create_task(transactions_message())
