@@ -935,10 +935,10 @@ async def update_maket_cap_height_value():
         mint = data['mint']
         if not data['market_cap_sol_height_need_update']:
             logging.info(f"代币 {mint} 不需要更新最高市值")
-            return
+            continue
         maket_data = fetch_maket_data(mint=mint)
         if not maket_data:
-            return
+            continue
         try:
             params = {
                 "ca":mint,
