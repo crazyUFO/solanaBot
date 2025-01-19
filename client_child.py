@@ -339,6 +339,7 @@ async def market_cap_sol_height_update():
         logging.info(f"开始最高市值更新")
         #更新最高市值到后台
         await update_maket_cap_height_value()
+        logging.info(f"最高市值更新结束")
         await asyncio.sleep(300)  # 每过5分钟检查一次
 
 #订单不走列队
@@ -931,27 +932,28 @@ async def update_maket_cap_height_value():
     values = redis_client().mget(keys)
     for value in values:
         data = json.loads(value)
-        if data['market_cap_sol_height_need_update']:
-            mint = data['mint']
-            maket_data = fetch_maket_data(mint=mint)
-            print(maket_data)
-            if not maket_data:
-                return
-            try:
-                params = {
-                    "ca":data['mint'],
-                    "tokenMarketValueHeight":maket_data['high'],
-                    "timeToHighMarketValue":maket_data['time_diff']
-                }
-                response = server_fun_api.updateMaketValueHeightByCa(params)
-                response.raise_for_status()
-                logging.info(f"代币 {params['ca']} 更新最高市值 => {maket_data['high']}")
-                data['market_cap_sol_height_need_update'] = False
-                redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{params['ca']}",json.dumps(data),xx=True)
-            except requests.exceptions.RequestException as e:
-                # 捕获所有请求相关的异常，包括状态码非200
-                logging.error(f"更新最高市值接口报错 请求出错: {e}")
-                return
+        mint = data['mint']
+        if not data['market_cap_sol_height_need_update']:
+            logging.info(f"代币 {mint} 不需要更新最高市值")
+            return
+        maket_data = fetch_maket_data(mint=mint)
+        if not maket_data:
+            return
+        try:
+            params = {
+                "ca":mint,
+                "tokenMarketValueHeight":maket_data['high'],
+                "timeToHighMarketValue":maket_data['time_diff']
+            }
+            response = server_fun_api.updateMaketValueHeightByCa(params)
+            response.raise_for_status()
+            logging.info(f"代币 {mint} 更新最高市值 => {maket_data['high']}")
+            data['market_cap_sol_height_need_update'] = False
+            redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(data),xx=True,ex=86400)
+        except requests.exceptions.RequestException as e:
+            # 捕获所有请求相关的异常，包括状态码非200
+            logging.error(f"更新最高市值接口报错 请求出错: {e}")
+            return
         await asyncio.sleep(2)
 #请求保存播报记录到数据库中
 def save_transaction(item):
