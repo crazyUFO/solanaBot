@@ -960,7 +960,7 @@ async def update_maket_cap_height_value():
         except requests.exceptions.RequestException as e:
             # 捕获所有请求相关的异常，包括状态码非200
             logging.error(f"更新最高市值接口报错 请求出错: {e}")
-            return
+            continue
         await asyncio.sleep(2)
 #请求保存播报记录到数据库中
 def save_transaction(item):
