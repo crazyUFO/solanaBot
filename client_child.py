@@ -204,7 +204,8 @@ async def cleanup_subscriptions():
         # 移除过期的订阅
         for mint_address in expired_addresses:
             del subscriptions[mint_address]
-        
+            #redis里刷新最高市值的也移除一下
+            redis_client().delete(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint_address}")
         if ws:
         #将订阅的数组分片，以免数据过大 WS会断开
             chunks = [expired_addresses[i:i + 20] for i in range(0, len(expired_addresses), 20)]
