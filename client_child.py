@@ -200,12 +200,16 @@ async def cleanup_subscriptions():
             if current_time - data['last_trade_time'] >= TOKEN_EXPIRY and (market_cap_usdt < MIN_TOKEN_CAP or market_cap_usdt >= MAX_TOKEN_CAP):
                 logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {TOKEN_EXPIRY / 60} 分钟")
                 expired_addresses.append(mint_address)
-        
+        r = redis_client()
         # 移除过期的订阅
         for mint_address in expired_addresses:
             del subscriptions[mint_address]
             #redis里刷新最高市值的也移除一下
-            redis_client().delete(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint_address}")
+            data_json = r.get(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint_address}")
+            if data_json:
+                data = json.loads(data_json)
+                if not data['market_cap_sol_height_need_update']:
+                    r.delete(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint_address}")
         if ws:
         #将订阅的数组分片，以免数据过大 WS会断开
             chunks = [expired_addresses[i:i + 20] for i in range(0, len(expired_addresses), 20)]
@@ -243,6 +247,7 @@ async def websocket_handler():
                 }
                 await ws.send(json.dumps(payload))
                 logging.info("订阅请求已发送")
+                r = redis_client()
                 # 持续接收消息并处理
                 while True:
                     data = await ws.recv()  # 等待并接收新的消息
@@ -271,10 +276,10 @@ async def websocket_handler():
                                             "market_cap_sol_height_need_update":True #需要进行更新了
                                         })
                                         #存过后台的，直接刷新市值
-                                        redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(subscriptions[mint]),xx=True,ex=86400)
+                                        r.set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(subscriptions[mint]),xx=True,ex=86400)
                                 #扫描符合要求的订单
                                 if message['solAmount'] >= 0.3: ##2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
-                                    lock_acquired = redis_client().set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁5秒", nx=True, ex=5)  # 锁5秒自动过期
+                                    lock_acquired = r.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁5秒", nx=True, ex=1)  # 锁5秒自动过期
                                     if lock_acquired:
                                         logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']}")
                                         transactions_message_no_list(message)
@@ -919,9 +924,10 @@ def redis_client():
 async def update_maket_cap_height_value():
     cursor = 0
     keys = []
+    r = redis_client()
     # 使用 SCAN 命令遍历所有匹配的键
     while True:
-        cursor, result =redis_client().scan(cursor=cursor, match=f"{MINT_NEED_UPDATE_MAKET_CAP}*")
+        cursor, result =r.scan(cursor=cursor, match=f"{MINT_NEED_UPDATE_MAKET_CAP}*")
         keys.extend(result)
         if cursor == 0:
             break
@@ -930,7 +936,7 @@ async def update_maket_cap_height_value():
         logging.info("更新最高市值没有找到符合条件的键.")
         return
     # 获取这些键的值
-    values = redis_client().mget(keys)
+    values = r.mget(keys)
     for value in values:
         data = json.loads(value)
         mint = data['mint']
@@ -950,7 +956,7 @@ async def update_maket_cap_height_value():
             response.raise_for_status()
             logging.info(f"代币 {mint} 更新最高市值 => {maket_data['high']}")
             data['market_cap_sol_height_need_update'] = False
-            redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(data),xx=True,ex=86400)
+            r.set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(data),xx=True,ex=86400)
         except requests.exceptions.RequestException as e:
             # 捕获所有请求相关的异常，包括状态码非200
             logging.error(f"更新最高市值接口报错 请求出错: {e}")
@@ -960,7 +966,7 @@ async def update_maket_cap_height_value():
 def save_transaction(item):
     server_fun_api.saveTransaction(item)
     redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(subscriptions[item['mint']]),ex=86400)
-#请求市场诗句
+#请求市场数据
 def fetch_maket_data(mint):
     proxies = {
         "https":proxy_expired.get("proxy")
@@ -984,7 +990,6 @@ def fetch_maket_data(mint):
     else:
         logging.error(f"代币 {mint} 获取市场数据失败 {res.text}")
         return {}
-    
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
