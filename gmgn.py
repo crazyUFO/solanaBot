@@ -6,15 +6,15 @@ class gmgn:
     def __init__(self):
         self.headers = {
             "Content-Type": "application/json",
-            "accept":"application/json, text/plain, */*",
-            "accept-encoding":"gzip, deflate, br, zstd",
-            "accept-language":"zh-CN,zh;q=0.9",
+            "accept": "application/json, text/plain, */*",
+            "accept-encoding": "gzip, deflate, br",
+            "accept-language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
             "cache-control":"no-cache",
-            "cookie":"_ga=GA1.1.1966193130.1732905505; __cf_bm=cxnFlmTPpdZJjhZ.RGTwMKmNbiYGqxRUhvUFqARPXAs-1733119292-1.0.1.1-HD6_3BTyj7ejxOa56lAYMtmSrsE35kaHaO2bF1c53jM2UIF7u_IkpHY5CPEEq9HEnxyJpyGHKAbKlrX6yRwWow; cf_clearance=5OxGYar3g0RtYA3CNwBWxtgZahWpetKJ29jmQ2HNeaQ-1733119602-1.2.1.1-VCTCn.Z_KYC2pMIXtGDtfEQaKN57Md3plkrvCLdAxhUYRKGuGluneMJVgq0vHi.KqAl__QJ5jwTpqiA5TnZJoWTqeR2WzYtupwKIYFWZ5tUA68LfcZxHlP0ag03e34XSv8ZnBoYHoozA8vEnkVRItNoE4BvxkpnrNWxQMC7yrwZiSeoj1Q_nInZaBxM6KE375PGwn2S4FWyI2Kgh6y1KSUcbLp251a6OW41dGjBra85VH8F_UBaHIVL3L49YfRyX447F7h4EFmJuXXNVE.6X8QrVorOKU33WvezxgAWZrts1vUhxq2MdVzZ5gBPsbnUgfbMFSTNpbNnuOj_OojygAzOOSiiFtbKXX.qnMc6.es0CmsUTcZGrEmarkorZ0IdfQzpP6OD60okwONJghyfM.V56NygU6BgXClVYCfyEtlOiIDSV1Joc373BrXJzSnvr; _ga_0XM0LYXGC8=GS1.1.1733119602.8.1.1733120007.0.0.0",
+            "cookie": "__cf_bm=6VsuJDimD8zNOIqFFGpD61zR9dNfPL1_qy3CEpSesK8-1737391588-1.0.1.1-ug6pZFbAUM5LU1aYj5kh3dCH0C1RBi9P0FhjafECTlrUQlF3lbn._C4yscO9m9yJhuuZUk4SwTrjPhKULdtpvw; _ga=GA1.1.1405690339.1737391590; cf_clearance=5Vjo7Evg5gQxV80g3qyeFM1G3qPYRyUWHY4VlNqhx6U-1737391592-1.2.1.1-JrJVR13tTAHDObkIC.YSEFUnboHE_L97Vj0DQXwCoSRohJ99PLZyxK7SyEdxKusDEwHbLgZ5hP11KmtDi2lrYbjRghHHkxa7nQHQtQ_63a7kdrPMkc_WHNhhh5pwF4VTtxht5P.04KEzAsripDWnfgROId5rJnXV82uNdRuB3KlOwEjbn_0qR7RXJBSEtXrKNd7n0wqjD85Mrk5JMNPiGmwKX2kHs3IzEZrj0sb_rQ7xVjVVC41_RY03IL0NKFVxwTxMoTKjz2Xk5OKvbR7xoIdpENbUwUzvFZ37upM1jrs; _ga_0XM0LYXGC8=GS1.1.1737391589.1.1.1737391656.0.0.0",
             "pragma":"no-cache",
             "priority":"u=1, i",
             "referer":"https://gmgn.ai/trade/VqNpWUdf?chain=sol",
-            "sec-ch-ua":'"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            "sec-ch-ua": "\"Not_A Brand\";v=\"99\", \"Google Chrome\";v=\"109\", \"Chromium\";v=\"109\"",
             "sec-ch-ua-arch":'"x86"',
             "sec-ch-ua-bitness":'"64"',
             "sec-ch-ua-full-version":'"131.0.6778.86"',
@@ -26,7 +26,7 @@ class gmgn:
             "sec-fetch-dest":"empty",
             "sec-fetch-mode":"cors",
             "sec-fetch-site":"same-origin",
-            'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
         }
 
         self.session = tls_client.Session(client_identifier="chrome_103")
