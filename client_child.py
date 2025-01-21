@@ -347,7 +347,8 @@ async def fair_consumption():
 
     r = redis_client()
     logging.info(f"启动客户端队列,客户端 id {CLIENT_ID}")
-
+    # 清空 client_counter，确保从零开始计数
+    r.delete("client_counter")
     # 使用 Redis 自增计数器来确保客户端ID的唯一排序分数
     rank_score = r.incr("client_counter")
     r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
