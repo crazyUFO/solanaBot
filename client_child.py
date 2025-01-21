@@ -374,6 +374,8 @@ async def fair_consumption():
                         logging.info(f"更新分数，客户端 {CLIENT_ID} 排名重新计算")
 
                     last_task_time = time.time()  # 更新任务处理时间
+                    # 更新客户端的最后分数更新时间
+                    r.hset(f"{CLIENT_ID}_last_update_time", "time", time.time())
                     break
                 else:
                     # 如果客户端卡住了超过最大等待时间，则更新其分数并跳出
@@ -381,6 +383,8 @@ async def fair_consumption():
                         logging.warning(f"客户端 {CLIENT_ID} 已等待超过 {max_wait_time} 秒，强制更新分数并返回队列")
                         rank_score = r.incr("client_counter")  # 强制更新分数
                         r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
+                        # 更新客户端的最后分数更新时间
+                        r.hset(f"{CLIENT_ID}_last_update_time", "time", time.time())
                         last_task_time = time.time()  # 重置任务时间
                         break
                     await asyncio.sleep(0.01)
@@ -389,13 +393,14 @@ async def fair_consumption():
             await asyncio.sleep(0.01)
 #心跳检查 客户端队列，是否有掉线的客户端
 async def check_inactive_clients():
-    r = redis.Redis()
+    r = redis_client()
     while True:
         logging.info("检查客户端队列中超过 20 秒未更新分数的客户端...")
         current_time = time.time()
 
         # 获取客户端队列中的所有客户端
         clients = r.zrange(CLIENT_MQ_LIST, 0, -1)
+        print(clients)
         for client_id in clients:
             # 获取客户端的分数
             rank_score = r.zscore(CLIENT_MQ_LIST, client_id)
