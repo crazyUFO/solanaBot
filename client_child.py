@@ -16,6 +16,7 @@ from gmgn import gmgn
 from serverFun import ServerFun
 from tg_htmls import tg_message_html_1,tg_message_html_3, tg_message_html_4, tg_message_html_5
 from zoneinfo import ZoneInfo
+import uuid
 # 创建配置解析器对象
 config = configparser.ConfigParser()
 # 读取INI文件时指定编码
@@ -65,6 +66,10 @@ MINT_NEED_UPDATE_MAKET_CAP_LOCKED = "mint_need_update_maket_cap_locked"#因为�
 mint_15days_address = {}
 exchange_wallets = [] #拉黑的交易所地址，从服务器获取
 user_wallets = []#拉黑的钱包地址
+#1.21号更新，客户端公平消费机制
+CLIENT_MQ_LIST = "client_mq_list" #客户端队列
+CLIENT_ID = str(uuid.uuid4()) #客户端ID
+TXHASH_MQ_LIST = "txhash_mq_list" #去重过后的ws拿到的订单数据
 # 初始化日志
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
@@ -230,7 +235,7 @@ async def cleanup_subscriptions():
         await asyncio.sleep(60)  # 每过1小时检查一次
 
 async def websocket_handler():
-    global ws
+    global ws,countdown_time
     while True:
         try:
             logging.info("正在尝试建立 WebSocket 连接...")
@@ -276,10 +281,11 @@ async def websocket_handler():
                                         r.set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(subscriptions[mint]),xx=True,ex=86400)
                                 #扫描符合要求的订单
                                 if message['solAmount'] >= 0.3: ##2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
-                                    lock_acquired = r.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁5秒", nx=True, ex=1)  # 锁5秒自动过期
+                                    lock_acquired = r.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁1秒", nx=True, ex=1)  # 锁5秒自动过期
                                     if lock_acquired:
-                                        logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']}")
-                                        transactions_message_no_list(message)
+                                        logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']} 进入消费队列")
+                                        await redis.rpush(TXHASH_MQ_LIST, json.dumps(message))
+                                        #transactions_message_no_list(message)
                                     #await market_cap_sol_height_update_mq_list.put(message)  # 买入单推送
                                 # else:
                                 #     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount} 不满足")
@@ -335,7 +341,25 @@ async def subscribed_new_mq():
                     logging.info(f"代币 {mint} 重复订阅")                
             except Exception as e:
                 logging.error(f"订阅新代币列队出错: {e}")
-
+# 将本脚本加入redis的排序队列，进行公平消费
+async def fair_consumption():
+    r = redis_client()
+    logging.info(f"启动客户端队列,客户端id {CLIENT_ID}")
+    # 在开始时，将客户端ID加入队列中，确保客户端能参与队列消费
+    await r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
+    while True:
+        task = await r.brpop(CLIENT_MQ_LIST)
+        task_name = task[1].decode("utf-8")
+        if task_name == CLIENT_ID:
+            logging.info(f"{CLIENT_ID} 开始执行...")
+            # 解析队列中的数据
+            product_data = await r.blpop(TXHASH_MQ_LIST)
+            product_info = json.loads(product_data[1].decode("utf-8"))
+            await r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
+            transactions_message_no_list(product_info)
+        else:
+            logging.info(f"{CLIENT_ID} 跳过执行...")
+            await asyncio.sleep(0.5)
 #最高市值更新列队
 async def market_cap_sol_height_update():
     while True:
@@ -352,7 +376,7 @@ def transactions_message_no_list(data):
         executor.submit(check_user_transactions, data)
     else:
         logging.info(f"用户 {data['traderPublicKey']} 已被redis排除 {MIN_DAY_NUM} 天")
-
+#拿交易记录
 def check_user_transactions(item):
     '''
     为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
@@ -999,6 +1023,9 @@ async def main():
 
     # 启动处理最高市值更新
     market_cap_sol_height_task = asyncio.create_task(market_cap_sol_height_update())
+
+    #启动公平消费任务
+    fair_consumption_task = asyncio.create_task(fair_consumption())
     
     # 启动交易监听队列任务
     # transactions_task= asyncio.create_task(transactions_message())
@@ -1009,7 +1036,7 @@ async def main():
     # 读取配置
     await fetch_config()
     # 等待任务完成
-    await asyncio.gather(subscribed_new_task,ws_task,market_cap_sol_height_task,cleanup_task,redis_task)
+    await asyncio.gather(subscribed_new_task,ws_task,fair_consumption_task,market_cap_sol_height_task,cleanup_task,redis_task)
     
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':
