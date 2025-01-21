@@ -283,7 +283,6 @@ async def websocket_handler():
                                 if message['solAmount'] >= 0.3: ##2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
                                     lock_acquired = r.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁1秒", nx=True, ex=1)  # 锁5秒自动过期
                                     if lock_acquired:
-                                        logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']} 进入消费队列")
                                         r.rpush(TXHASH_MQ_LIST, json.dumps(message))
                                         #transactions_message_no_list(message)
                                     #await market_cap_sol_height_update_mq_list.put(message)  # 买入单推送
@@ -357,9 +356,11 @@ async def fair_consumption():
                 product_data = r.lpop(TXHASH_MQ_LIST)
                 if product_data:
                     break
-                await asyncio.sleep(0.05)
-            product_info = json.loads(product_data)
-            transactions_message_no_list(product_info)
+                else:
+                    await asyncio.sleep(0.05)
+            message = json.loads(product_data)
+            logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']} -- 客户端 {CLIENT_ID}")
+            transactions_message_no_list(message)
             r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
             logging.info(f"{CLIENT_ID} 开始完毕返回队列...")
         else:
