@@ -343,6 +343,8 @@ async def subscribed_new_mq():
                 logging.error(f"订阅新代币列队出错: {e}")
 # 将本脚本加入redis的排序队列，进行公平消费
 async def fair_consumption():
+    #等WS链接之后再进行操作
+    await ws_initialized_event.wait()
     r = redis_client()
     logging.info(f"启动客户端队列,客户端id {CLIENT_ID}")
     # 在开始时，将客户端ID加入队列中，确保客户端能参与队列消费
