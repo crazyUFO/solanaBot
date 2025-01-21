@@ -413,10 +413,6 @@ async def check_inactive_clients():
                         logging.warning(f"客户端 {client_id} 已超过 {20} 秒未更新分数，移除该客户端")
                         r.zrem(CLIENT_MQ_LIST, client_id)  # 移除客户端
                         r.hdel(f"{client_id}_last_update_time", "time")  # 清除客户端的最后更新时间
-                else:
-                    logging.warning(f"客户端 {client_id} 没有记录最后更新时间，移除该客户端")
-                    r.zrem(CLIENT_MQ_LIST, client_id)  # 移除客户端
-                    r.hdel(f"{client_id}_last_update_time", "time")  # 清除客户端的最后更新时间
 
         # 每隔 1 秒检查一次
         await asyncio.sleep(1)
