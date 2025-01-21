@@ -223,7 +223,7 @@ async def cleanup_subscriptions():
                 }
                 await ws.send(json.dumps(payload))
                 await asyncio.sleep(5)
-        logging.error(f"----目前进程播报----")
+        logging.error(f"----目前 {CLIENT_ID} 进程播报----")
         logging.error(f"----创建监听队列 {subscribed_new_mq_list.qsize()} 条----")
         logging.error(f"----数据处理队列 {market_cap_sol_height_update_mq_list.qsize()} 条----")
         logging.error(f"----数据线程占用 {len(executor._threads)} 条----")
