@@ -343,41 +343,43 @@ async def subscribed_new_mq():
             except Exception as e:
                 logging.error(f"订阅新代币列队出错: {e}")
 async def fair_consumption():
-    # 等待WS链接之后再进行操作
     await ws_initialized_event.wait()
-    
+
     r = redis_client()
     logging.info(f"启动客户端队列,客户端 id {CLIENT_ID}")
-    
-    # 在开始时，将客户端ID加入排序队列中，确保客户端能参与队列消费
-    # 使用 ZSET 存储客户端的优先级，分数可以是时间戳或自增数
-    r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: time.time()})
+
+    # 使用 Redis 自增计数器来确保客户端ID的唯一排序分数
+    rank_score = r.incr("client_counter")
+    r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
+
+    task_count = 0  # 记录客户端处理的任务数
+    update_threshold = 3  # 每处理5个任务更新一次分数
 
     while True:
-        # 获取当前客户端的排名（按分数排序）
         rank = r.zrank(CLIENT_MQ_LIST, CLIENT_ID)
-        if rank is not None and rank == 0:  # 如果客户端的排名在最前面，开始消费
+        if rank is not None and rank == 0:  # 排名最前面，开始消费
             logging.info(f"开始消费..")
             while True:
-                # 从任务队列获取数据
                 product_data = r.lpop(TXHASH_MQ_LIST)
                 if product_data:
                     message = json.loads(product_data)
-                    logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']} -- 消费")
+                    logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']} -- 消费")
                     transactions_message_no_list(message)
+                    task_count += 1  # 增加任务计数
+                    
+                    # 每处理一定数量的任务后更新分数
+                    if task_count >= update_threshold:
+                        rank_score = r.incr("client_counter")
+                        r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
+                        task_count = 0  # 重置任务计数
+                        logging.info(f"更新分数，客户端 {CLIENT_ID} 排名重新计算")
+                    
                     break
                 else:
-                    # 如果没有任务，等待一段时间后继续尝试
                     await asyncio.sleep(0.01)
-            
-            # 将客户端ID重新加入 ZSET，保持公平的顺序
-            r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: time.time()})
-            logging.info(f"执行完毕，返回队列...")
+
         else:
-            # 如果客户端不在队列最前面，返回队列等待
-            # logging.info(f"{CLIENT_ID} 没有执行权限，往后排...")
-            r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: time.time()})  # 更新客户端优先级
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.01)
 #最高市值更新列队
 async def market_cap_sol_height_update():
     while True:
