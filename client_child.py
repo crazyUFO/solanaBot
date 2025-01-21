@@ -366,16 +366,16 @@ async def fair_consumption():
                     break
                 else:
                     # 如果没有任务，等待一段时间后继续尝试
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.01)
             
             # 将客户端ID重新加入 ZSET，保持公平的顺序
             r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: time.time()})
             logging.info(f"执行完毕，返回队列...")
         else:
             # 如果客户端不在队列最前面，返回队列等待
-            logging.info(f"{CLIENT_ID} 没有执行权限，往后排...")
+            # logging.info(f"{CLIENT_ID} 没有执行权限，往后排...")
             r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: time.time()})  # 更新客户端优先级
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.01)
 #最高市值更新列队
 async def market_cap_sol_height_update():
     while True:
