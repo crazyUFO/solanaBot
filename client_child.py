@@ -348,7 +348,6 @@ async def fair_consumption():
     r = redis_client()
     logging.info(f"启动客户端队列,客户端id {CLIENT_ID}")
     # 在开始时，将客户端ID加入队列中，确保客户端能参与队列消费
-    r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
     while True:
         task = r.rpop(CLIENT_MQ_LIST)
         print(task)
@@ -363,16 +362,10 @@ async def fair_consumption():
             transactions_message_no_list(product_info)
             r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
             logging.info(f"{CLIENT_ID} 开始完毕返回队列...")
-                
-            #     # 解析队列中的数据
-            #     # product_data = r.lpop(TXHASH_MQ_LIST)
-            #     # if product_data:
-            #     #     product_info = json.loads(product_data[1])
-            #     #     transactions_message_no_list(product_info)
-            #     #     r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
-            # else:
-            #     logging.info(f"{CLIENT_ID} 跳过执行...")
-        await asyncio.sleep(0.05)
+        else:
+            logging.info(f"{CLIENT_ID} 没有执行权限，往后排...")
+            r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
+            await asyncio.sleep(0.05)
 #最高市值更新列队
 async def market_cap_sol_height_update():
     while True:
