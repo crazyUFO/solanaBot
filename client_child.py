@@ -283,6 +283,8 @@ async def websocket_handler():
                                 if message['solAmount'] >= 0.3: ##2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
                                     lock_acquired = r.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁1秒", nx=True, ex=1)  # 锁5秒自动过期
                                     if lock_acquired:
+                                        #因为是全局的，以防脚本之间订阅不相同，找不到mint
+                                        message["subscriptions"] = subscriptions[mint]
                                         r.rpush(TXHASH_MQ_LIST, json.dumps(message))
                                         #transactions_message_no_list(message)
                                     #await market_cap_sol_height_update_mq_list.put(message)  # 买入单推送
@@ -418,10 +420,10 @@ def check_user_transactions(item):
     
     #4种type都需要用到的数据
     item['alert_data'] = alert_data
-    item['symbol'] = subscriptions[item['mint']]['symbol']
+    item['symbol'] = item['subscriptions']['symbol']
     item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
     item['isSentToExchange'] = 0 #是否已经发送到交易端
-    item['mint_create_time_utc'] = subscriptions[item['mint']]['create_time_utc'] #代币创建时间
+    item['mint_create_time_utc'] = item['subscriptions']['create_time_utc'] #代币创建时间
 
 
     if item['solAmount'] >= SINGLE_SOL:
@@ -1002,7 +1004,7 @@ async def update_maket_cap_height_value():
 #请求保存播报记录到数据库中
 def save_transaction(item):
     server_fun_api.saveTransaction(item)
-    redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(subscriptions[item['mint']]),ex=86400)
+    redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(item['subscriptions']),ex=86400)
 #请求市场数据
 def fetch_maket_data(mint):
     proxies = {
