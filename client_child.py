@@ -284,7 +284,7 @@ async def websocket_handler():
                                     lock_acquired = r.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁1秒", nx=True, ex=1)  # 锁5秒自动过期
                                     if lock_acquired:
                                         logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']} 进入消费队列")
-                                        await redis.rpush(TXHASH_MQ_LIST, json.dumps(message))
+                                        r.rpush(TXHASH_MQ_LIST, json.dumps(message))
                                         #transactions_message_no_list(message)
                                     #await market_cap_sol_height_update_mq_list.put(message)  # 买入单推送
                                 # else:
@@ -350,19 +350,29 @@ async def fair_consumption():
     # 在开始时，将客户端ID加入队列中，确保客户端能参与队列消费
     r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
     while True:
-        task = r.brpop(CLIENT_MQ_LIST)
-        task_name = task[1]
-        if task_name == CLIENT_ID:
+        task = r.rpop(CLIENT_MQ_LIST)
+        print(task)
+        if task == CLIENT_ID:
             logging.info(f"{CLIENT_ID} 开始执行...")
-            # 解析队列中的数据
-            product_data = r.lpop(TXHASH_MQ_LIST)
-            if product_data:
-                product_info = json.loads(product_data[1])
-                transactions_message_no_list(product_info)
+            while True:
+                product_data = r.lpop(TXHASH_MQ_LIST)
+                if product_data:
+                    break
+                await asyncio.sleep(0.05)
+            product_info = json.loads(product_data)
+            transactions_message_no_list(product_info)
             r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
-        else:
-            logging.info(f"{CLIENT_ID} 跳过执行...")
-            await asyncio.sleep(0.5)
+            logging.info(f"{CLIENT_ID} 开始完毕返回队列...")
+                
+            #     # 解析队列中的数据
+            #     # product_data = r.lpop(TXHASH_MQ_LIST)
+            #     # if product_data:
+            #     #     product_info = json.loads(product_data[1])
+            #     #     transactions_message_no_list(product_info)
+            #     #     r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
+            # else:
+            #     logging.info(f"{CLIENT_ID} 跳过执行...")
+        await asyncio.sleep(0.05)
 #最高市值更新列队
 async def market_cap_sol_height_update():
     while True:
