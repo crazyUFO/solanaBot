@@ -353,7 +353,7 @@ async def fair_consumption():
     r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
 
     task_count = 0  # 记录客户端处理的任务数
-    update_threshold = 3  # 每处理5个任务更新一次分数
+    update_threshold = 1  # 每处理5个任务更新一次分数
 
     while True:
         rank = r.zrank(CLIENT_MQ_LIST, CLIENT_ID)
