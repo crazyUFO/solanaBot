@@ -38,7 +38,6 @@ REDIS_HOST = config.get('REDIS', 'REDIS_HOST') #本地
 REDIS_PORT =  config.getint('REDIS', 'REDIS_PORT')
 REDIS_PWD = config.get('REDIS', 'REDIS_PWD')
 REDIS_DB = config.getint('REDIS', 'REDIS_DB')
-REDIS_LIST = config.get('REDIS', 'REDIS_LIST')
 WS_URL = config.get('General', 'WS_URL') # WebSocket 地址
 # 日志文件夹和文件名
 LOG_DIR = config.get('LOG', 'DIR')
@@ -68,7 +67,7 @@ exchange_wallets = [] #拉黑的交易所地址，从服务器获取
 user_wallets = []#拉黑的钱包地址
 #1.21号更新，客户端公平消费机制
 CLIENT_MQ_LIST = "client_mq_list" #客户端队列
-CLIENT_ID = str(uuid.uuid4()) #客户端id
+CLIENT_ID = config.get('REDIS', 'REDIS_LIST_CLIENT_ID') #客户端id
 TXHASH_MQ_LIST = "txhash_mq_list" #去重过后的ws拿到的订单数据
 # 初始化日志
 if not os.path.exists(LOG_DIR):
