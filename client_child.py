@@ -68,7 +68,7 @@ exchange_wallets = [] #拉黑的交易所地址，从服务器获取
 user_wallets = []#拉黑的钱包地址
 #1.21号更新，客户端公平消费机制
 CLIENT_MQ_LIST = "client_mq_list" #客户端队列
-CLIENT_ID = str(uuid.uuid4()) #客户端ID
+CLIENT_ID = 0 #客户端优先级
 TXHASH_MQ_LIST = "txhash_mq_list" #去重过后的ws拿到的订单数据
 # 初始化日志
 if not os.path.exists(LOG_DIR):
@@ -340,32 +340,41 @@ async def subscribed_new_mq():
                     logging.info(f"代币 {mint} 重复订阅")                
             except Exception as e:
                 logging.error(f"订阅新代币列队出错: {e}")
-# 将本脚本加入redis的排序队列，进行公平消费
 async def fair_consumption():
-    #等WS链接之后再进行操作
+    # 等待WS链接之后再进行操作
     await ws_initialized_event.wait()
+    
     r = redis_client()
-    logging.info(f"启动客户端队列,客户端id {CLIENT_ID}")
-    # 在开始时，将客户端ID加入队列中，确保客户端能参与队列消费
+    logging.info(f"启动客户端队列,客户端 id {CLIENT_ID}")
+    
+    # 在开始时，将客户端ID加入排序队列中，确保客户端能参与队列消费
+    # 使用 ZSET 存储客户端的优先级，分数可以是时间戳或自增数
+    r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: time.time()})
+
     while True:
-        task = r.rpop(CLIENT_MQ_LIST)
-        print(task)
-        if task == CLIENT_ID:
-            logging.info(f"{CLIENT_ID} 开始执行...")
+        # 获取当前客户端的排名（按分数排序）
+        rank = r.zrank(CLIENT_MQ_LIST, CLIENT_ID)
+        if rank is not None and rank == 0:  # 如果客户端的排名在最前面，开始消费
+            logging.info(f"开始消费..")
             while True:
+                # 从任务队列获取数据
                 product_data = r.lpop(TXHASH_MQ_LIST)
                 if product_data:
+                    message = json.loads(product_data)
+                    logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']} -- 消费")
+                    transactions_message_no_list(message)
                     break
                 else:
+                    # 如果没有任务，等待一段时间后继续尝试
                     await asyncio.sleep(0.05)
-            message = json.loads(product_data)
-            logging.error(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']} -- 客户端 {CLIENT_ID}")
-            transactions_message_no_list(message)
-            r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
-            logging.info(f"{CLIENT_ID} 开始完毕返回队列...")
+            
+            # 将客户端ID重新加入 ZSET，保持公平的顺序
+            r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: time.time()})
+            logging.info(f"执行完毕，返回队列...")
         else:
+            # 如果客户端不在队列最前面，返回队列等待
             logging.info(f"{CLIENT_ID} 没有执行权限，往后排...")
-            r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
+            r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: time.time()})  # 更新客户端优先级
             await asyncio.sleep(0.05)
 #最高市值更新列队
 async def market_cap_sol_height_update():
