@@ -68,7 +68,7 @@ exchange_wallets = [] #拉黑的交易所地址，从服务器获取
 user_wallets = []#拉黑的钱包地址
 #1.21号更新，客户端公平消费机制
 CLIENT_MQ_LIST = "client_mq_list" #客户端队列
-CLIENT_ID = 0 #客户端优先级
+CLIENT_ID = str(uuid.uuid4()) #客户端id
 TXHASH_MQ_LIST = "txhash_mq_list" #去重过后的ws拿到的订单数据
 # 初始化日志
 if not os.path.exists(LOG_DIR):
