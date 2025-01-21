@@ -341,43 +341,28 @@ async def subscribed_new_mq():
                     logging.info(f"代币 {mint} 重复订阅")                
             except Exception as e:
                 logging.error(f"订阅新代币列队出错: {e}")
-# 非阻塞的公平消费函数
+# 将本脚本加入redis的排序队列，进行公平消费
 async def fair_consumption():
-    # 等待WebSocket初始化
+    #等WS链接之后再进行操作
     await ws_initialized_event.wait()
-
-    # 获取Redis客户端连接
     r = redis_client()
-    
-    logging.info(f"启动客户端队列, 客户端id {CLIENT_ID}")
-
-    # 将客户端ID加入队列，确保客户端能够参与队列消费
+    logging.info(f"启动客户端队列,客户端id {CLIENT_ID}")
+    # 在开始时，将客户端ID加入队列中，确保客户端能参与队列消费
     r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
-
     while True:
-        # 尝试从队列中取出任务，如果没有任务则跳过
-        task = r.lpop(CLIENT_MQ_LIST)
-        if task:
-            task_name = task.decode("utf-8")
-            if task_name == CLIENT_ID:
-                logging.info(f"{CLIENT_ID} 开始执行...")
-                # 循环尝试从TXHASH_MQ_LIST获取数据，直到获取到数据
-                product_data = None
-                while not product_data:
-                    product_data =  r.lpop(TXHASH_MQ_LIST)
-                    if product_data:
-                        product_info = json.loads(product_data.decode("utf-8"))
-                        transactions_message_no_list(product_info)
-                        r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
-                    else:
-                        # 如果没有数据，继续尝试获取
-                        logging.info(f"{CLIENT_ID} 未获取到数据，继续尝试...")
-                        await asyncio.sleep(0.01)  # 短时间休眠，避免过高CPU占用               
-            else:
-                logging.info(f"{CLIENT_ID} 跳过执行...")
-        # 主循环中的短暂休眠
-        await asyncio.sleep(0.01)  # 仍然保持短暂休眠，避免过高CPU占用
-
+        task = r.brpop(CLIENT_MQ_LIST)
+        task_name = task[1]
+        if task_name == CLIENT_ID:
+            logging.info(f"{CLIENT_ID} 开始执行...")
+            # 解析队列中的数据
+            product_data = r.lpop(TXHASH_MQ_LIST)
+            if product_data:
+                product_info = json.loads(product_data[1])
+                transactions_message_no_list(product_info)
+            r.rpush(CLIENT_MQ_LIST, CLIENT_ID)
+        else:
+            logging.info(f"{CLIENT_ID} 跳过执行...")
+            await asyncio.sleep(0.5)
 #最高市值更新列队
 async def market_cap_sol_height_update():
     while True:
