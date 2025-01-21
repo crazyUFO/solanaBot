@@ -372,7 +372,7 @@ async def fair_consumption():
                         r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
                         task_count = 0  # 重置任务计数
                         logging.info(f"更新分数，客户端 {CLIENT_ID} 排名重新计算")
-                        
+
                     last_task_time = time.time()  # 更新任务处理时间
                     break
                 else:
@@ -387,6 +387,34 @@ async def fair_consumption():
 
         else:
             await asyncio.sleep(0.01)
+#心跳检查 客户端队列，是否有掉线的客户端
+async def check_inactive_clients():
+    r = redis.Redis()
+    while True:
+        logging.info("检查客户端队列中超过 20 秒未更新分数的客户端...")
+        current_time = time.time()
+
+        # 获取客户端队列中的所有客户端
+        clients = r.zrange(CLIENT_MQ_LIST, 0, -1)
+        for client_id in clients:
+            # 获取客户端的分数
+            rank_score = r.zscore(CLIENT_MQ_LIST, client_id)
+            if rank_score:
+                # 获取客户端最后更新时间
+                last_update_time = r.hget(f"{client_id}_last_update_time", "time")
+                if last_update_time:
+                    last_update_time = float(last_update_time)
+                    if current_time - last_update_time >= 20:
+                        logging.warning(f"客户端 {client_id} 已超过 {20} 秒未更新分数，移除该客户端")
+                        r.zrem(CLIENT_MQ_LIST, client_id)  # 移除客户端
+                        r.hdel(f"{client_id}_last_update_time", "time")  # 清除客户端的最后更新时间
+                else:
+                    logging.warning(f"客户端 {client_id} 没有记录最后更新时间，移除该客户端")
+                    r.zrem(CLIENT_MQ_LIST, client_id)  # 移除客户端
+                    r.hdel(f"{client_id}_last_update_time", "time")  # 清除客户端的最后更新时间
+
+        # 每隔 1 秒检查一次
+        await asyncio.sleep(1)
 #最高市值更新列队
 async def market_cap_sol_height_update():
     while True:
@@ -1053,7 +1081,8 @@ async def main():
 
     #启动公平消费任务
     fair_consumption_task = asyncio.create_task(fair_consumption())
-    
+    #心跳检查客户端队列
+    check_inactive_clients_task = asyncio.create_task(check_inactive_clients())
     # 启动交易监听队列任务
     # transactions_task= asyncio.create_task(transactions_message())
 
@@ -1063,7 +1092,7 @@ async def main():
     # 读取配置
     await fetch_config()
     # 等待任务完成
-    await asyncio.gather(subscribed_new_task,ws_task,fair_consumption_task,market_cap_sol_height_task,cleanup_task,redis_task)
+    await asyncio.gather(subscribed_new_task,ws_task,fair_consumption_task,check_inactive_clients_task,market_cap_sol_height_task,cleanup_task,redis_task)
     
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':
