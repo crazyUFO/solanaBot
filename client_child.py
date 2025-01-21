@@ -351,8 +351,9 @@ async def fair_consumption():
     r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
 
     task_count = 0  # 记录客户端处理的任务数
-    update_threshold = 1  # 每处理5个任务更新一次分数
-
+    update_threshold = 1  # 每处理1个任务更新一次分数
+    last_task_time = time.time()  # 记录上次处理任务的时间
+    max_wait_time = 5  # 设置最大等待时间（秒）
     while True:
         rank = r.zrank(CLIENT_MQ_LIST, CLIENT_ID)
         if rank is not None and rank == 0:  # 排名最前面，开始消费
@@ -361,7 +362,7 @@ async def fair_consumption():
                 product_data = r.lpop(TXHASH_MQ_LIST)
                 if product_data:
                     message = json.loads(product_data)
-                    logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']} -- 消费")
+                    logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']}")
                     transactions_message_no_list(message)
                     task_count += 1  # 增加任务计数
                     
@@ -374,6 +375,13 @@ async def fair_consumption():
                     
                     break
                 else:
+                    # 如果客户端卡住了超过最大等待时间，则更新其分数并跳出
+                    if time.time() - last_task_time >= max_wait_time:
+                        logging.warning(f"客户端 {CLIENT_ID} 已等待超过 {max_wait_time} 秒，强制更新分数并返回队列")
+                        rank_score = r.incr("client_counter")  # 强制更新分数
+                        r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
+                        last_task_time = time.time()  # 重置任务时间
+                        break
                     await asyncio.sleep(0.01)
 
         else:
