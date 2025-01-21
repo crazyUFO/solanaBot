@@ -372,7 +372,8 @@ async def fair_consumption():
                         r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
                         task_count = 0  # 重置任务计数
                         logging.info(f"更新分数，客户端 {CLIENT_ID} 排名重新计算")
-                    
+                        
+                    last_task_time = time.time()  # 更新任务处理时间
                     break
                 else:
                     # 如果客户端卡住了超过最大等待时间，则更新其分数并跳出
