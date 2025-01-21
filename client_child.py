@@ -377,7 +377,7 @@ async def fair_consumption():
             # 如果客户端不在队列最前面，返回队列等待
             # logging.info(f"{CLIENT_ID} 没有执行权限，往后排...")
             r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: time.time()})  # 更新客户端优先级
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(1)
 #最高市值更新列队
 async def market_cap_sol_height_update():
     while True:
