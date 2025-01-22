@@ -69,6 +69,7 @@ user_wallets = []#拉黑的钱包地址
 CLIENT_MQ_LIST = "client_mq_list" #客户端队列
 CLIENT_ID = config.get('REDIS', 'REDIS_LIST_CLIENT_ID') #客户端id
 TXHASH_MQ_LIST = "txhash_mq_list" #去重过后的ws拿到的订单数据
+CLIENT = "client:" #客户端相关的，包括计数，各个客户端的最后消费时间，客户端队列，消费订单队列
 # 初始化日志
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
@@ -284,7 +285,7 @@ async def websocket_handler():
                                     if lock_acquired:
                                         #因为是全局的，以防脚本之间订阅不相同，找不到mint
                                         message["subscriptions"] = subscriptions[mint]
-                                        r.rpush(TXHASH_MQ_LIST, json.dumps(message))
+                                        r.rpush(f"{CLIENT}{TXHASH_MQ_LIST}", json.dumps(message))
                                         #transactions_message_no_list(message)
                                     #await market_cap_sol_height_update_mq_list.put(message)  # 买入单推送
                                 # else:
@@ -347,19 +348,19 @@ async def fair_consumption():
     r = redis_client()
     logging.info(f"启动客户端队列,客户端 id {CLIENT_ID}")
     # 使用 Redis 自增计数器来确保客户端ID的唯一排序分数
-    rank_score = r.incr("client_counter")
-    r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
+    rank_score = r.incr(f"{CLIENT}client_counter")
+    r.zadd(f"{CLIENT}{CLIENT_MQ_LIST}", {CLIENT_ID: rank_score})
 
     task_count = 0  # 记录客户端处理的任务数
     update_threshold = 1  # 每处理1个任务更新一次分数
     last_task_time = time.time()  # 记录上次处理任务的时间
     max_wait_time = 5  # 设置最大等待时间（秒）
     while True:
-        rank = r.zrank(CLIENT_MQ_LIST, CLIENT_ID)
+        rank = r.zrank(f"{CLIENT}{CLIENT_MQ_LIST}", CLIENT_ID)
         if rank is not None and rank == 0:  # 排名最前面，开始消费
             logging.info(f"开始消费..")
             while True:
-                product_data = r.lpop(TXHASH_MQ_LIST)
+                product_data = r.lpop(f"{CLIENT}{TXHASH_MQ_LIST}")
                 if product_data:
                     message = json.loads(product_data)
                     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']}")
@@ -368,23 +369,23 @@ async def fair_consumption():
                     
                     # 每处理一定数量的任务后更新分数
                     if task_count >= update_threshold:
-                        rank_score = r.incr("client_counter")
-                        r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
+                        rank_score = r.incr(f"{CLIENT}client_counter")
+                        r.zadd(f"{CLIENT}{CLIENT_MQ_LIST}", {CLIENT_ID: rank_score})
                         task_count = 0  # 重置任务计数
                         logging.info(f"更新分数，客户端 {CLIENT_ID} 排名重新计算")
 
                     last_task_time = time.time()  # 更新任务处理时间
                     # 更新客户端的最后分数更新时间
-                    r.hset(f"{CLIENT_ID}_last_update_time", "time", time.time())
+                    r.hset(f"{CLIENT}{CLIENT_ID}_last_update_time", "time", time.time())
                     break
                 else:
                     # 如果客户端卡住了超过最大等待时间，则更新其分数并跳出
                     if time.time() - last_task_time >= max_wait_time:
                         logging.warning(f"客户端 {CLIENT_ID} 已等待超过 {max_wait_time} 秒，强制更新分数并返回队列")
-                        rank_score = r.incr("client_counter")  # 强制更新分数
-                        r.zadd(CLIENT_MQ_LIST, {CLIENT_ID: rank_score})
+                        rank_score = r.incr(f"{CLIENT}client_counter")  # 强制更新分数
+                        r.zadd(f"{CLIENT}{CLIENT_MQ_LIST}", {CLIENT_ID: rank_score})
                         # 更新客户端的最后分数更新时间
-                        r.hset(f"{CLIENT_ID}_last_update_time", "time", time.time())
+                        r.hset(f"{CLIENT}{CLIENT_ID}_last_update_time", "time", time.time())
                         last_task_time = time.time()  # 重置任务时间
                         break
                     await asyncio.sleep(0.01)
@@ -394,25 +395,26 @@ async def fair_consumption():
 #心跳检查 客户端队列，是否有掉线的客户端
 async def check_inactive_clients():
     r = redis_client()
+    # 设定过期时间
+    SCORE_UPDATE_THRESHOLD = 60
     while True:
-        logging.info("检查客户端队列中超过 20 秒未更新分数的客户端...")
+        logging.info("检查客户端队列中超过 60 秒未更新分数的客户端...")
         current_time = time.time()
 
         # 获取客户端队列中的所有客户端
-        clients = r.zrange(CLIENT_MQ_LIST, 0, -1)
-        print(clients)
+        clients = r.zrange(f"{CLIENT}{CLIENT_MQ_LIST}", 0, -1)
         for client_id in clients:
             # 获取客户端的分数
-            rank_score = r.zscore(CLIENT_MQ_LIST, client_id)
+            rank_score = r.zscore(f"{CLIENT}{CLIENT_MQ_LIST}", client_id)
             if rank_score:
                 # 获取客户端最后更新时间
-                last_update_time = r.hget(f"{client_id}_last_update_time", "time")
+                last_update_time = r.hget(f"{CLIENT}{client_id}_last_update_time", "time")
                 if last_update_time:
                     last_update_time = float(last_update_time)
-                    if current_time - last_update_time >= 20:
-                        logging.warning(f"客户端 {client_id} 已超过 {20} 秒未更新分数，移除该客户端")
-                        r.zrem(CLIENT_MQ_LIST, client_id)  # 移除客户端
-                        r.hdel(f"{client_id}_last_update_time", "time")  # 清除客户端的最后更新时间
+                    if current_time - last_update_time >= SCORE_UPDATE_THRESHOLD:
+                        logging.warning(f"客户端 {client_id} 已超过 {SCORE_UPDATE_THRESHOLD} 秒未更新分数，移除该客户端")
+                        r.zrem(f"{CLIENT}{CLIENT_MQ_LIST}", client_id)  # 移除客户端
+                        r.hdel(f"{CLIENT}{client_id}_last_update_time", "time")  # 清除客户端的最后更新时间
 
         # 每隔 1 秒检查一次
         await asyncio.sleep(1)
