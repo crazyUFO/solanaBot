@@ -278,7 +278,7 @@ async def websocket_handler():
                                             "market_cap_sol_height_need_update":True #需要进行更新了
                                         })
                                         #存过后台的，直接刷新市值
-                                        r.set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(subscriptions[mint]),xx=True,ex=86400)
+                                        r.set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(subscriptions[mint]),xx=True,ex=7200)
                                 #扫描符合要求的订单
                                 if message['solAmount'] >= 0.3: ##2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
                                     lock_acquired = r.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁1秒", nx=True, ex=1)  # 锁5秒自动过期
@@ -355,6 +355,7 @@ async def fair_consumption():
     update_threshold = 1  # 每处理1个任务更新一次分数
     last_task_time = time.time()  # 记录上次处理任务的时间
     max_wait_time = 5  # 设置最大等待时间（秒）
+    time_out_count = 0#超时的次数
     while True:
         rank = r.zrank(f"{CLIENT}{CLIENT_MQ_LIST}", CLIENT_ID)
         if rank is not None and rank == 0:  # 排名最前面，开始消费
@@ -1018,8 +1019,8 @@ async def update_maket_cap_height_value():
     values = r.mget(keys)
     for value in values:
         data = json.loads(value)
-        mint = data['mint']
-        if not data['market_cap_sol_height_need_update']:
+        mint = data.get('mint','')
+        if not data['market_cap_sol_height_need_update'] or not mint:
             logging.info(f"代币 {mint} 不需要更新最高市值")
             continue
         maket_data = fetch_maket_data(mint=mint)
@@ -1035,7 +1036,7 @@ async def update_maket_cap_height_value():
             response.raise_for_status()
             logging.info(f"代币 {mint} 更新最高市值 => {maket_data['high']}")
             data['market_cap_sol_height_need_update'] = False
-            r.set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(data),xx=True,ex=86400)
+            r.set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(data),xx=True,ex=7200)
         except requests.exceptions.RequestException as e:
             # 捕获所有请求相关的异常，包括状态码非200
             logging.error(f"更新最高市值接口报错 请求出错: {e}")
@@ -1044,7 +1045,7 @@ async def update_maket_cap_height_value():
 #请求保存播报记录到数据库中
 def save_transaction(item):
     server_fun_api.saveTransaction(item)
-    redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(item['subscriptions']),ex=86400)
+    redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(item['subscriptions']),ex=7200)
 #请求市场数据
 def fetch_maket_data(mint):
     proxies = {
