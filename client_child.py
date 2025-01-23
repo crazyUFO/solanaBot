@@ -16,7 +16,7 @@ from gmgn import gmgn
 from serverFun import ServerFun
 from tg_htmls import tg_message_html_1,tg_message_html_3, tg_message_html_4, tg_message_html_5
 from zoneinfo import ZoneInfo
-import uuid
+from logging.handlers import TimedRotatingFileHandler
 # 创建配置解析器对象
 config = configparser.ConfigParser()
 # 读取INI文件时指定编码
@@ -70,19 +70,35 @@ CLIENT_MQ_LIST = "client_mq_list" #客户端队列
 CLIENT_ID = config.get('REDIS', 'REDIS_LIST_CLIENT_ID') #客户端id
 TXHASH_MQ_LIST = "txhash_mq_list" #去重过后的ws拿到的订单数据
 CLIENT = "client:" #客户端相关的，包括计数，各个客户端的最后消费时间，客户端队列，消费订单队列
-# 初始化日志
+# 初始化日志目录
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
 log_filename = os.path.join(LOG_DIR, LOG_NAME)
+
+# 创建一个定时滚动日志处理器
+handler = TimedRotatingFileHandler(
+    log_filename,  # 日志文件的路径
+    when="midnight",  # 每天午夜生成新日志
+    interval=1,  # 每天滚动一次
+    backupCount=2,  # 保留最近的3天日志（包括今天的）
+    encoding="utf-8"  # 设置日志文件编码为UTF-8
+)
+
+# 设置日志格式
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+# 配置根日志
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_filename, encoding='utf-8'),
-        logging.StreamHandler()
+        handler,  # 使用定时滚动日志处理器
+        logging.StreamHandler()  # 控制台输出日志
     ]
 )
+
+# 获取日志记录器
 logger = logging.getLogger()
 logger.info("日志已启动")
 
