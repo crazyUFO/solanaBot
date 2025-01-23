@@ -1034,6 +1034,9 @@ async def update_maket_cap_height_value():
     # 获取这些键的值
     values = r.mget(keys)
     for value in values:
+        if value is None:
+            logging.info(f"最高市值取到的value是NONE")
+            continue
         data = json.loads(value)
         mint = data.get('mint','')
         if not data['market_cap_sol_height_need_update'] or not mint:
