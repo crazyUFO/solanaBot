@@ -15,8 +15,11 @@ from cloudbypass import Proxy
 from gmgn import gmgn
 from serverFun import ServerFun
 from tg_htmls import tg_message_html_1,tg_message_html_3, tg_message_html_4, tg_message_html_5
+from utils import check_historical_frequency
+
 from zoneinfo import ZoneInfo
 from logging.handlers import TimedRotatingFileHandler
+import copy
 # 创建配置解析器对象
 config = configparser.ConfigParser()
 # 读取INI文件时指定编码
@@ -117,6 +120,7 @@ proxy_expired = {"create_time": time.time(), "proxy": str(proxy.copy().set_expir
 
 # 初始化全局变量用于订阅和价格管理
 subscriptions = {}
+mint_odders = {} #所有订阅下的订单
 sol_price = {"create_time": None, "price": 0}
 
 # 初始化 gmgn API
@@ -225,6 +229,7 @@ async def cleanup_subscriptions():
         # 移除过期的订阅
         for mint_address in expired_addresses:
             del subscriptions[mint_address]
+            del mint_odders[mint_address]
             #redis里刷新最高市值的也移除一下
             r.delete(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint_address}")
                    
@@ -276,11 +281,19 @@ async def websocket_handler():
                             mint = message['mint']
                             # 获取当前时间并转换为 ISO 8601 国内格式
                             message['create_time_utc'] = get_utc_now()
+                            # 当前时间的时间戳格式
+                            message['create_time_stamp'] = int(time.time())
                             #计算代币美元单价
                             message['sol_price_usd'] = sol_price['price']                           
                             if txType == 'create':
+                                #把重复名称的去掉
+                                if not symbol_unique(message['symbol']):
+                                    logging.error(f"symbol {message['symbol']} 已经存在")
+                                    continue
                                 await subscribed_new_mq_list.put(message)  # 识别订单创建
                             elif txType == "buy" and "solAmount" in message:
+                                #1.24日更新，把每个mint下面的订单都记录，以便推单统计 #深度拷贝以防杂数据
+                                mint_odders.setdefault(mint, []).append(copy.deepcopy(message))
                                 #加入最后活跃时间
                                 if mint in subscriptions:
                                     subscriptions[mint].update({
@@ -302,10 +315,6 @@ async def websocket_handler():
                                         #因为是全局的，以防脚本之间订阅不相同，找不到mint
                                         message["subscriptions"] = subscriptions[mint]
                                         r.rpush(f"{CLIENT}{TXHASH_MQ_LIST}", json.dumps(message))
-                                        #transactions_message_no_list(message)
-                                    #await market_cap_sol_height_update_mq_list.put(message)  # 买入单推送
-                                # else:
-                                #     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{amount} 不满足")
                             elif txType == "sell":
                                 #加入最后活跃时间
                                 if mint in subscriptions:
@@ -346,7 +355,7 @@ async def subscribed_new_mq():
                         "market_cap_sol_height":data['marketCapSol'],#最高市值初始化
                         "symbol":data['symbol'],
                         "create_time_utc":data['create_time_utc'],
-                        "market_cap_sol_height_need_update":False #更新最高市值的flag True 就是需要更新到后端
+                        "market_cap_sol_height_need_update":False, #更新最高市值的flag True 就是需要更新到后端
                     }
                     logging.info(f"订阅新代币 {mint} 已记录")                    
                     payload = {
@@ -456,6 +465,8 @@ def check_user_transactions(item):
     '''
     为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
     '''
+    # print(f"数据是:{check_historical_frequency(item['mint'],item['signature'],30,0,0.3,2,2,mint_odders,logging)}")
+    # return
     now = datetime.now() #当前时间
     start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
     transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
@@ -801,6 +812,7 @@ def fetch_mint_dev(item):
             redis_client().set(f"{MINT_DEV_DATA}{mint}",json.dumps(data),ex=10)
         else:
             logging.error(f"代币 {mint} 获取dev情况失败 {res.text}")
+            return True
     #检查是否是创建者
     for value in data:
         if "creator" in value['maker_token_tags'] and value['maker'] == traderPublicKey:
@@ -809,7 +821,7 @@ def fetch_mint_dev(item):
         
     #检查dev团队是否跑路，跑路直接放行通过
     unrealized_profits = sum(record["unrealized_profit"] for record in data)
-    if round(unrealized_profits, 5) <=0:
+    if data and round(unrealized_profits, 5) <=0:
         return False
     
     #检查dev团队持仓 
@@ -1089,6 +1101,11 @@ def fetch_maket_data(mint):
     else:
         logging.error(f"代币 {mint} 获取市场数据失败 {res.text}")
         return {}
+#暂时的对于symbol进行去重处理
+def symbol_unique(symbol):
+    r = redis_client()
+    return r.set(f"symbol_unique:{symbol}", symbol,nx=True, ex=86400)
+
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理

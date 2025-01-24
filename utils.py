@@ -1,0 +1,49 @@
+from collections import defaultdict
+
+def check_historical_frequency(mint, txhash, step, min_amount, max_amount,max_allowed_count,total_count,mint_odders,logging):
+    '''
+    从txhash开始，往前推step个交易，按时间戳归类，筛选出金额在指定范围内的交易
+    mint: 检测的盘
+    txhash: 单子的签名
+    step: 检测的跨度
+    min_amount: 最小金额
+    max_amount: 最大金额
+    max_allowed_count 允许出现的次数
+    total_count 计次范围，超出max_allowed_count范围增加一次
+    mint_odders 是存放订单的数组
+    logging 日志写入方法
+    '''
+    # 获取指定 mint 地址的交易记录
+    count = 0 
+    data = mint_odders.get(mint, [])
+    
+    # 找到指定 txhash 签名的交易所在的下标
+    tx_index = None
+    for i, tx in enumerate(data):
+        if tx['signature'] == txhash:
+            tx_index = i
+            break
+    
+    if not  tx_index:
+        logging.error("订单列表未找到指定的交易签名。")
+        return False
+    # 定义回溯窗口的起始和结束下标
+    start_index = max(0, tx_index - step)
+    end_index = tx_index
+
+    # 按时间戳归类交易
+    timestamp_groups = defaultdict(list)
+    for i in range(start_index, end_index):
+        tx = data[i]
+        
+        # 将交易按时间戳分组
+        timestamp_groups[tx['create_time_stamp']].append(tx)
+    filtered_transactions = {}
+    # 筛选出每组时间戳中金额在指定范围内的交易
+    for timestamp, tx_group in timestamp_groups.items():
+        filtered_group = [tx for tx in tx_group if min_amount <= tx['solAmount'] <= max_amount]
+        if filtered_group and len(filtered_group) >= max_allowed_count:  # 如果该时间戳组有符合条件的交易
+            count+=1  
+    return count >= total_count
+    
+
