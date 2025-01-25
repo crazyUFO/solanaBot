@@ -203,6 +203,7 @@ async def get_sol_for_usdt():
     return 0
 
 async def cleanup_subscriptions():
+    r = redis_client()
     while True:
         await ws_initialized_event.wait()
         current_time = time.time()
@@ -225,11 +226,13 @@ async def cleanup_subscriptions():
             if current_time - data['last_trade_time'] >= TOKEN_EXPIRY and (market_cap_usdt < MIN_TOKEN_CAP or market_cap_usdt >= MAX_TOKEN_CAP):
                 logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {TOKEN_EXPIRY / 60} 分钟")
                 expired_addresses.append(mint_address)
-        r = redis_client()
         # 移除过期的订阅
         for mint_address in expired_addresses:
-            del subscriptions[mint_address]
-            del mint_odders[mint_address]
+            try:
+                del subscriptions[mint_address]
+                del mint_odders[mint_address]
+            except Exception as e:
+                logging.error(f"在移除 mint_address 报错:{e}")
             #redis里刷新最高市值的也移除一下
             r.delete(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint_address}")
                    
