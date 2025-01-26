@@ -223,7 +223,7 @@ async def cleanup_subscriptions():
         # 遍历所有订阅，最后一次交易时间超时 12.31日更新 并且要低于市值设定最小值或者高于市值设定最大值
         for mint_address, data in subscriptions.items():            
             market_cap_usdt = data['market_cap_sol'] * sol_price['price']
-            if current_time - data['last_trade_time'] >= TOKEN_EXPIRY and (market_cap_usdt < 8000 or market_cap_usdt >= MAX_TOKEN_CAP):
+            if current_time - data['last_trade_time'] >= TOKEN_EXPIRY and (market_cap_usdt < MIN_TOKEN_CAP or market_cap_usdt >= MAX_TOKEN_CAP):
                 logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {TOKEN_EXPIRY / 60} 分钟")
                 expired_addresses.append(mint_address)
         # 移除过期的订阅
