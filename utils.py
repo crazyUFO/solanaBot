@@ -45,5 +45,24 @@ def check_historical_frequency(mint, txhash, step, min_amount, max_amount,max_al
         if filtered_group and len(filtered_group) >= max_allowed_count:  # 如果该时间戳组有符合条件的交易
             count+=1  
     return count >= total_count
+
+def flatten_dict(d, parent_key='', sep='_'):
+    """
+    Flatten the nested dictionary and convert all keys to uppercase.
+    
+    :param d: The dictionary to flatten.
+    :param parent_key: The key that will be prefixed to the nested keys.
+    :param sep: The separator to use between parent and child keys.
+    :return: A flattened dictionary with all keys in uppercase.
+    """
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k.upper()}" if parent_key else k.upper()
+        if isinstance(v, dict):
+            # Recursively flatten the nested dictionary
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
     
 
