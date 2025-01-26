@@ -172,12 +172,12 @@ async def fetch_config(server_id = SERVER_ID):
         HELIUS_API_KEY = config.get("HELIUS_API_KEY")
         SOLSCAN_TOKEN = config.get("SOLSCAN_TOKEN")
         DAY_NUM = config.get("DAY_NUM")
-        MIN_DAY_NUM = 0.7 # 虽小满足播报的单位，同时也是redis缓存释放的时间
+        MIN_DAY_NUM = 0.5 # 虽小满足播报的单位，同时也是redis缓存释放的时间
         LIQUIDITY = 4000 #流动性
-        ALTER_PROPORTION = 0.6 #感叹号占比
+        ALTER_PROPORTION = 1 #感叹号占比
         ALLOWED_TRAN_TYPES = [1,2,3,4] #允许的交易类型
-        ALLOWED_DEV_NUM_HAS_CHILD = 15 #dev数据上限 代表DEV团队整体持有多少 有小号
-        ALLOWED_DEV_NUM = 6 #没有小号
+        ALLOWED_DEV_NUM_HAS_CHILD = 999 #dev数据上限 代表DEV团队整体持有多少 有小号
+        ALLOWED_DEV_NUM = 999 #没有小号
         BLANCE = config.get("BLANCE")
         url = config.get("CALL_BACK_URL") ##获取回调地址组
         # 处理空字符串的情况
@@ -223,7 +223,7 @@ async def cleanup_subscriptions():
         # 遍历所有订阅，最后一次交易时间超时 12.31日更新 并且要低于市值设定最小值或者高于市值设定最大值
         for mint_address, data in subscriptions.items():            
             market_cap_usdt = data['market_cap_sol'] * sol_price['price']
-            if current_time - data['last_trade_time'] >= TOKEN_EXPIRY and (market_cap_usdt < MIN_TOKEN_CAP or market_cap_usdt >= MAX_TOKEN_CAP):
+            if current_time - data['last_trade_time'] >= TOKEN_EXPIRY and (market_cap_usdt < 8000 or market_cap_usdt >= MAX_TOKEN_CAP):
                 logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {TOKEN_EXPIRY / 60} 分钟")
                 expired_addresses.append(mint_address)
         # 移除过期的订阅
