@@ -15,7 +15,7 @@ from cloudbypass import Proxy
 from gmgn import gmgn
 from serverFun import ServerFun
 from tg_htmls import tg_message_html_1,tg_message_html_3, tg_message_html_4, tg_message_html_5
-from utils import flatten_dict,check_historical_frequency,is_chinese
+from utils import flatten_dict,check_historical_frequency,check_historical_frequency2,is_chinese
 
 from zoneinfo import ZoneInfo
 from logging.handlers import TimedRotatingFileHandler
@@ -59,6 +59,7 @@ ADDRESS_HOLDINGS_DATA = "address_holdings_data:"#用户单币盈利缓存1天
 ADDRESS_HOLDINGS_ALERT_DATA = "address_holdings_alert_data:"#用户最近活跃 ##分析感叹号数量
 ADDRESS_TOKENS_DATA = "address_tokens_data:" #用户tokens sol 余额 缓存1小时
 MINT_POOL_DATA = "mint_pool_data:"#代币流动性缓存10秒
+WALLET_INFOS = "wallet_infos:"#钱包详情的缓存
 #2025.1.2日更新增加新播报需求
 MINT_15DAYS_ADDRESS = "mint_15days_address:"
 MINT_ZHUANZHANG_ADDRESS = "mint_zhuanzhang_address:"
@@ -160,7 +161,7 @@ async def redis_get_settings():
 # 获取远程配置函数
 async def fetch_config(server_id = SERVER_ID):
     global headers
-    global SOLSCAN_TOKEN, HELIUS_API_KEY, PURCHASE_AMOUNT, DAY_INTERVAL,REDIS_EX_TIME,MIN_PURCHASE_AMOUNT
+    global SOLSCAN_TOKEN, HELIUS_API_KEY, PURCHASE_AMOUNT, DAY_INTERVAL,REDIS_EX_TIME,MIN_PURCHASE_AMOUNT,WIN_RATE
     global MIN_MARKET_CAP, MAX_MARKET_CAP, DEV_TEAM_SOL_WITH_SUB, DEV_TEAM_SOL_WITHOUT_SUB
     global BLACKLIST_RATIO, PROFIT_7D, WIN_RATE_7D, BUY_FREQUENCY
     global REMOVE_DUPLICATES_BY_NAME, REMOVE_CHINESE_BY_NAME, SUBSCRIPTION_CYCLE
@@ -175,6 +176,7 @@ async def fetch_config(server_id = SERVER_ID):
     global TYPE4_SETTINGS_PARENT_WALLET_TRANSFER_SOL, TYPE4_SETTINGS_TOKEN_QUANTITY, TYPE4_SETTINGS_TOKEN_BALANCE
     global SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN, SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX
     global TYPE3_SETTINGS_PURCHASE_AMOUNT, TYPE4_SETTINGS_PURCHASE_AMOUNT, ALLOWED_TRAN_TYPES,TYPE4_SETTINGS_PARENT_WALLET_TRANSACTION_RANGE
+    global SPREAD_DETECTION_SETTINGS_ENABLED_TWO,SPREAD_DETECTION_SETTINGS_SPREAD_TWO,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_TWO,SPREAD_DETECTION_SETTINGS_MAX_COUNT_TWO
     #全局设置
     REDIS_EX_TIME = None #从服务器拿到四个类型的周期数据，取最短的那个作为时间周期
     MIN_PURCHASE_AMOUNT = None #从服务器拿到四个类型的单笔购买数据，取最少得那个
@@ -187,8 +189,9 @@ async def fetch_config(server_id = SERVER_ID):
     DEV_TEAM_SOL_WITH_SUB = None # dev有小号 sol
     DEV_TEAM_SOL_WITHOUT_SUB = None #dev没小号sol
     BLACKLIST_RATIO = None #黑盘比例
-    PROFIT_7D = None #七天盈利率
-    WIN_RATE_7D = None #七天胜率
+    PROFIT_7D = None #七天盈利额度
+    WIN_RATE = None#总胜率
+    WIN_RATE_7D = None #七天盈利率
     BUY_FREQUENCY = None #七天购买频率
     REMOVE_DUPLICATES_BY_NAME = None # 移除同名
     REMOVE_CHINESE_BY_NAME = None #移除中文名
@@ -201,6 +204,11 @@ async def fetch_config(server_id = SERVER_ID):
     SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN = None # 金额范围最小
     SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX = None #金额范围最大
     SPREAD_DETECTION_SETTINGS_MAX_COUNT = None # 允许出现的次数计次
+    #跨度检测二挡
+    SPREAD_DETECTION_SETTINGS_ENABLED_TWO = None
+    SPREAD_DETECTION_SETTINGS_SPREAD_TWO = None
+    SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_TWO = None
+    SPREAD_DETECTION_SETTINGS_MAX_COUNT_TWO = None
     #类型一设置
     TYPE1_SETTINGS_TRANSACTION_ENABLED = None #交易开关
     TYPE1_SETTINGS_PURCHASE_AMOUNT = None#单独设置购买金额
@@ -357,7 +365,7 @@ async def websocket_handler():
                             # 获取当前时间并转换为 ISO 8601 国内格式
                             message['create_time_utc'] = get_utc_now()
                             # 当前时间的时间戳格式
-                            message['create_time_stamp'] = int(time.time())
+                            message['create_time_stamp'] = int(time.time() * 1000) #毫秒级
                             #计算代币美元单价
                             message['sol_price_usd'] = sol_price['price']                           
                             if txType == 'create':
@@ -531,13 +539,20 @@ def transactions_message_no_list(item):
         为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
     '''
     check = redis_client().exists(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}")
+    print(SPREAD_DETECTION_SETTINGS_ENABLED,SPREAD_DETECTION_SETTINGS_ENABLED_TWO)
     if not check:
         redis_client().set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400)) #买入直接排除 进行节流
         #推单检测
+        mint_odders = None
         if SPREAD_DETECTION_SETTINGS_ENABLED:
             mint_odders = json.loads(redis_client().hget(MINT_ODDERS,item['mint']))
-            if not check_historical_frequency(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX,SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES,SPREAD_DETECTION_SETTINGS_MAX_COUNT,mint_odders,logging):
+            if not check_historical_frequency2(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,1,2,mint_odders,logging):
                 return
+        if SPREAD_DETECTION_SETTINGS_ENABLED_TWO:
+            mint_odders = json.loads(redis_client().hget(MINT_ODDERS, item['mint'])) if not mint_odders else mint_odders
+            if not check_historical_frequency2(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD_TWO,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_TWO,SPREAD_DETECTION_SETTINGS_MAX_COUNT_TWO,mint_odders,logging):
+                return
+
 
         now = datetime.now() #当前时间
         start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
@@ -548,6 +563,7 @@ def transactions_message_no_list(item):
         #多线程调用GMGN
         future_dev = executor.submit(fetch_mint_dev,item)
         future_alert = executor.submit(fetch_user_wallet_holdings_show_alert,item)
+        future_wallet_info = executor.submit(fetch_wallet_info,item)
         # 等待任务完成
         dev_data = future_dev.result()
         alert_data = future_alert.result()
@@ -557,7 +573,9 @@ def transactions_message_no_list(item):
         #检查感叹号数据
         if alert_data and alert_data > BLACKLIST_RATIO:
             return
-        
+        #检查钱包数据
+        if future_wallet_info:
+            return
         #4种type都需要用到的数据
         item['alert_data'] = alert_data
         item['symbol'] = item['subscriptions']['symbol']
@@ -780,15 +798,47 @@ def send_telegram_notification(message,bot,tag,item):
     except Exception as e:
         logging.error(f"{tag} 发送通知时出错: {e}")
 #请求用户的总营收
-def fetch_user_total_profit(address):
-    proxies = {
-        "https":proxy_expired.get("proxy")
-    }
-    res = gmgn_api.getWalletInfo(walletAddress=address,period="7d",proxies=proxies)
-    if res.status_code == 200:
-        return res.json()['data']
-    logging.error(f"用户 {address} 获取总营收失败 {res.text}")
-    return {}
+def fetch_wallet_info(item):
+    address = item['traderPublicKey']
+    data = redis_client().get(f"{WALLET_INFOS}{address}")
+    if data:
+        logging.info(f"用户 {address} 取出钱包详情缓存")
+        data =  json.loads(data)
+    else:
+        proxies = {
+            "https":proxy_expired.get("proxy")
+        }
+        res = gmgn_api.getWalletInfo(walletAddress=address,period="7d",proxies=proxies)
+        if res.status_code == 200:
+            data = res.json().get('data', {})
+            if data:
+                logging.info(f"用户 {address} 钱包详情已缓存")
+                redis_client().set(f"{WALLET_INFOS}{address}",json.dumps(data),ex=86400)
+            else:
+                logging.error(f"用户 {address} 钱包详情为空不能缓存")
+                return True
+        else:
+            logging.error(f"用户 {address} 获取钱包详情 {res.text}")
+            return True
+    #判断总胜率
+    winrate = data.get('winrate',0)
+    realized_profit_7d = data.get('realized_profit_7d',0)
+    pnl_7d = data.get('pnl_7d',0)
+    buy_7d = data.get('buy_7d',0)
+    if  WIN_RATE and winrate is not None  and winrate >= WIN_RATE:
+        logging.info(f"用户 {address} 7天内结算盈利额度 {data['realized_profit_7d']}")
+        return False
+    if PROFIT_7D and realized_profit_7d is not None and  realized_profit_7d  >= PROFIT_7D:
+        logging.info(f"用户 {address} 7天内结算盈利额度 {data['realized_profit_7d']}")
+        return False
+    if WIN_RATE_7D and pnl_7d is not None and  pnl_7d >= WIN_RATE_7D:
+        logging.info(f"用户 {address} 7天内盈利率 {data['buy_7d']}")
+        return False
+    if BUY_FREQUENCY and buy_7d is not None and  buy_7d < BUY_FREQUENCY:
+        logging.info(f"用户 {address} 7天内购买 {data['buy_7d']}")
+        return False
+    logging.info(f"用户 {address} 钱包符合要求")
+    return False
 #请求用户的代币盈亏情况 之请求一条，按降序排列，这一条就是金额最大的
 def fetch_user_wallet_holdings(address):
     data = redis_client().get(f"{ADDRESS_HOLDINGS_DATA}{address}")
