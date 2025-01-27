@@ -374,7 +374,7 @@ async def websocket_handler():
                                 await subscribed_new_mq_list.put(message)  # 识别订单创建
                             elif txType == "buy" and "solAmount" in message:
                                 #1.24日更新，把每个mint下面的订单都记录，以便推单统计
-                                set_odder_to_redis(mint,message,r)
+                                #set_odder_to_redis(mint,message,r)
                                 #加入最后活跃时间
                                 if mint in subscriptions:
                                     subscriptions[mint].update({
