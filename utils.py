@@ -58,7 +58,7 @@ def check_historical_frequency(mint, txhash, step, min_amount, max_amount,max_al
         filtered_group = [tx for tx in tx_group if min_amount <= tx['solAmount'] <= max_amount]
         if filtered_group and len(filtered_group) >= max_allowed_count:  # 如果该时间戳组有符合条件的交易
             count+=1  
-    logging.info(f"跨度检测1 代币 {mint} 签名 {txhash} 检测范围 从{start_index} 至{end_index} 检测金额范围 {min_amount}-{max_amount} 总共有{count}组数据 允许{total_count}组数据")
+    logging.info(f"跨度检测1 代币 {mint} 签名 {txhash} 检测范围 从{start_index} 至{end_index} 检测金额范围 {min_amount}-{max_amount} 总共有{count}组数据 允许{total_count}组数据 结果{count > total_count}")
     return count > total_count
 
 
@@ -95,7 +95,7 @@ def check_historical_frequency2(mint, txhash, step, amount,total_count,data,logg
         tx = data[i]
         if tx['solAmount'] > amount:
             count+=1
-    logging.info(f"跨度检测2 代币 {mint} 签名 {txhash} 检测范围 从{start_index} 至{end_index} 检测金额 {amount}sol 总共有{count}个数据 允许{total_count}个数据")
+    logging.info(f"跨度检测2 代币 {mint} 签名 {txhash} 检测范围 从{start_index} 至{end_index} 检测金额 {amount}sol 总共有{count}个数据 允许{total_count}个数据 结果{count > total_count}")
     return count > total_count
 #把所有字典的key变成大写
 def flatten_dict(d, parent_key='', sep='_'):

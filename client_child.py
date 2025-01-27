@@ -374,7 +374,7 @@ async def websocket_handler():
                                 await subscribed_new_mq_list.put(message)  # 识别订单创建
                             elif txType == "buy" and "solAmount" in message:
                                 #1.24日更新，把每个mint下面的订单都记录，以便推单统计
-                                set_odder_to_redis(mint,message)
+                                set_odder_to_redis(mint,message,r)
                                 #加入最后活跃时间
                                 if mint in subscriptions:
                                     subscriptions[mint].update({
@@ -540,17 +540,18 @@ def transactions_message_no_list(item):
         先排除redis中存在的
         为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
     '''
-    check = redis_client().exists(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}")
+    r = redis_client()
+    check = r.exists(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}")
     if not check:
-        redis_client().set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400)) #买入直接排除 进行节流
+        r.set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400)) #买入直接排除 进行节流
         #推单检测
         mint_odders = None
         if SPREAD_DETECTION_SETTINGS_ENABLED:
-            mint_odders = json.loads(redis_client().hget(MINT_ODDERS,item['mint']))
+            mint_odders = json.loads(r.hget(MINT_ODDERS,item['mint']))
             if check_historical_frequency(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX,SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES,SPREAD_DETECTION_SETTINGS_MAX_COUNT,mint_odders,logging):
                 return
         if SPREAD_DETECTION_SETTINGS_ENABLED_TWO:
-            mint_odders = json.loads(redis_client().hget(MINT_ODDERS, item['mint'])) if not mint_odders else mint_odders
+            mint_odders = json.loads(r.hget(MINT_ODDERS, item['mint'])) if not mint_odders else mint_odders
             if check_historical_frequency2(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD_TWO,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_TWO,SPREAD_DETECTION_SETTINGS_MAX_COUNT_TWO,mint_odders,logging):
                 return
 
@@ -1201,8 +1202,7 @@ def fetch_maket_data(mint):
         logging.error(f"代币 {mint} 获取市场数据失败 {res.text}")
         return {}
 #储存所有订单到redis
-def set_odder_to_redis(mint,data):
-    r = redis_client()
+def set_odder_to_redis(mint,data,r):
     # 深拷贝 message
     order = copy.deepcopy(data)
     # 获取 mint 的订单列表，或初始化为空列表
