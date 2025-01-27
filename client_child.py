@@ -547,17 +547,18 @@ def transactions_message_no_list(item):
         mint_odders = None
         if SPREAD_DETECTION_SETTINGS_ENABLED:
             mint_odders = json.loads(redis_client().hget(MINT_ODDERS,item['mint']))
-            if not check_historical_frequency(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX,SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES,SPREAD_DETECTION_SETTINGS_MAX_COUNT,mint_odders,logging):
+            if check_historical_frequency(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX,SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES,SPREAD_DETECTION_SETTINGS_MAX_COUNT,mint_odders,logging):
                 return
         if SPREAD_DETECTION_SETTINGS_ENABLED_TWO:
             mint_odders = json.loads(redis_client().hget(MINT_ODDERS, item['mint'])) if not mint_odders else mint_odders
-            if not check_historical_frequency2(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD_TWO,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_TWO,SPREAD_DETECTION_SETTINGS_MAX_COUNT_TWO,mint_odders,logging):
+            if check_historical_frequency2(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD_TWO,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_TWO,SPREAD_DETECTION_SETTINGS_MAX_COUNT_TWO,mint_odders,logging):
                 return
 
 
         now = datetime.now() #当前时间
         start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
         transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
+        print(transactions_data)
         if not transactions_data:
             logging.error(f"用户 {item['traderPublicKey']} 没有交易记录")
             return 
