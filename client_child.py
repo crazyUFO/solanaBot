@@ -567,6 +567,7 @@ def transactions_message_no_list(item):
         # 等待任务完成
         dev_data = future_dev.result()
         alert_data = future_alert.result()
+        future_wallet_data = future_wallet_info.result()
         #检查dev数据
         if dev_data:##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号
             return
@@ -574,7 +575,7 @@ def transactions_message_no_list(item):
         if alert_data and alert_data > BLACKLIST_RATIO:
             return
         #检查钱包数据
-        if future_wallet_info:
+        if future_wallet_data:
             return
         #4种type都需要用到的数据
         item['alert_data'] = alert_data
