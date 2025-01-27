@@ -643,10 +643,10 @@ def type3(item, transactions_data):
     block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
     time_diff = (now - block_time).days
     
-    if time_diff < 15:
+    if time_diff < TYPE3_SETTINGS_DAY_INTERVAL:
         return
 
-    logging.info(f"代币 {item['mint']} 发现了15天钱包 {item['traderPublicKey']}")
+    logging.info(f"代币 {item['mint']} 发现了{TYPE3_SETTINGS_DAY_INTERVAL}天钱包 {item['traderPublicKey']}")
     mint = item['mint']
     
     # 使用 Redis 记录每个 mint 地址符合条件的钱包地址
