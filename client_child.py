@@ -539,14 +539,13 @@ def transactions_message_no_list(item):
         为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
     '''
     check = redis_client().exists(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}")
-    print(SPREAD_DETECTION_SETTINGS_ENABLED,SPREAD_DETECTION_SETTINGS_ENABLED_TWO)
     if not check:
         redis_client().set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400)) #买入直接排除 进行节流
         #推单检测
         mint_odders = None
         if SPREAD_DETECTION_SETTINGS_ENABLED:
             mint_odders = json.loads(redis_client().hget(MINT_ODDERS,item['mint']))
-            if not check_historical_frequency2(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,1,2,mint_odders,logging):
+            if not check_historical_frequency(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX,SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES,SPREAD_DETECTION_SETTINGS_MAX_COUNT,mint_odders,logging):
                 return
         if SPREAD_DETECTION_SETTINGS_ENABLED_TWO:
             mint_odders = json.loads(redis_client().hget(MINT_ODDERS, item['mint'])) if not mint_odders else mint_odders
