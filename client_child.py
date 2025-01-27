@@ -253,6 +253,8 @@ async def fetch_config(server_id = SERVER_ID):
         for i in range(1, 5):
             if not config.get(f"type{i}_settings_purchase_amount"):
                 config[f"type{i}_settings_purchase_amount"] = config["purchase_amount"]
+            if not config.get(f"type{i}_settings_day_interval"):
+                config[f"type{i}_settings_day_interval"] = config["day_interval"]
             if config.get(f"type{i}_settings_transaction_enabled"):
                 allowed_tran_types.append(i)
         config['allowed_tran_types'] = allowed_tran_types
@@ -583,26 +585,22 @@ def transactions_message_no_list(item):
         item['isSentToExchange'] = 0 #是否已经发送到交易端
         item['mint_create_time_utc'] = item['subscriptions']['create_time_utc'] #代币创建时间
 
-        if item['solAmount'] >= TYPE1_SETTINGS_PURCHASE_AMOUNT or item['solAmount'] >= TYPE2_SETTINGS_PURCHASE_AMOUNT:#类型1 2
-            data =  analyze_transaction_records(transactions_data,item,3)
-            if not data:
-                return 
-            if data['time_diff'] >= DAY_INTERVAL:#类型1类型2满足3天以上的
-                executor.submit(type1, item,f"老鲸鱼CA:{item['symbol']}")  #老鲸鱼
-                executor.submit(type2, item,f"暴击CA:{item['symbol']}")  #老鲸鱼暴击
-            else:
-                if data['time_diff'] >=TYPE1_SETTINGS_DAY_INTERVAL and data['count'] == 0:
-                    executor.submit(type1, item,f"老鲸鱼CA:{item['symbol']}")  #老鲸鱼
-                if data['time_diff'] >=TYPE2_SETTINGS_DAY_INTERVAL and data['count'] == 0:
-                    executor.submit(type2, item,f"暴击CA:{item['symbol']}")  #老鲸鱼
+        if item['solAmount'] >= TYPE1_SETTINGS_PURCHASE_AMOUNT:
+            if not calculate_time_diff(item,1,transactions_data,TYPE1_SETTINGS_DAY_INTERVAL):
+                executor.submit(type1, item)  #老鲸鱼
+        if item['solAmount'] >= TYPE2_SETTINGS_PURCHASE_AMOUNT:
+            if not calculate_time_diff(item,2,transactions_data,TYPE2_SETTINGS_DAY_INTERVAL):
+                executor.submit(type2, item)  #老鲸鱼
         if item['solAmount'] >= TYPE3_SETTINGS_PURCHASE_AMOUNT:
-            executor.submit(type3, item,transactions_data)
+            if not calculate_time_diff(item,3,transactions_data,TYPE3_SETTINGS_DAY_INTERVAL):
+                executor.submit(type3, item)
         if item['solAmount'] >= TYPE4_SETTINGS_PURCHASE_AMOUNT:
-            executor.submit(type4, item,transactions_data)
+            if not calculate_time_diff(item,4,transactions_data,TYPE4_SETTINGS_DAY_INTERVAL):
+                executor.submit(type4, item)
     else:
         logging.info(f"用户 {item['traderPublicKey']} 已被redis排除")
 #新版更新老鲸鱼转账钱包
-def type4(item,transactions_data):
+def type4(item):
     '''
     老鲸鱼转账钱包 
     内容 抓内盘买单（买单钱包必须是操作不频繁24小时内没操作过 买卖的再去抓上级） 
@@ -611,10 +609,6 @@ def type4(item,transactions_data):
     符合条件播报钱包和上级钱包 和ca  一级钱包购买大于0.3
     '''
     now = datetime.now() #当前时间
-    block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
-    time_diff = (now - block_time).total_seconds()
-    if time_diff < TYPE4_SETTINGS_DAY_INTERVAL * 86400: 
-        return
     start_time = int((now - timedelta(days=TYPE4_SETTINGS_PARENT_WALLET_TRANSACTION_RANGE)).timestamp())#获取近72小时内的转账记录
     transfer_data = fetch_user_transfer(start_time,now.timestamp(),item['traderPublicKey'])
     father_address = None
@@ -653,17 +647,10 @@ def type4(item,transactions_data):
         item['type'] = 4
         save_transaction(item)
 #老鲸鱼15天钱包
-def type3(item, transactions_data):
+def type3(item):
     '''
         2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
     '''
-    now = datetime.now()  # 当前时间
-    block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
-    time_diff = (now - block_time).days
-    
-    if time_diff < TYPE3_SETTINGS_DAY_INTERVAL:
-        return
-
     logging.info(f"代币 {item['mint']} 发现了{TYPE3_SETTINGS_DAY_INTERVAL}天钱包 {item['traderPublicKey']}")
     mint = item['mint']
     
@@ -704,7 +691,7 @@ def type3(item, transactions_data):
         item['type'] = 3
         save_transaction(item)
 # 老鲸鱼钱包
-def type1(item,title):
+def type1(item):
     try:
         #市值检测
         if item['market_cap'] < TYPE1_SETTINGS_MARKET_CAP_LIMIT:#老鲸鱼暴击的条件 小于设定的市值时 
@@ -724,10 +711,10 @@ def type1(item,title):
         
         #检测重复并播报到TG群
         if save_success_to_redis(mint=item['mint'],type=1,address=item['traderPublicKey']):            
-            item['title'] = title
+            item['title'] = f"老鲸鱼CA:{item['symbol']}"
             item['sol'] = sol
             item['total_balance'] = total_balance
-            send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {title}",item)
+            send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {item['title']}",item)
 
         #保存播报记录
         item['type'] = 1 
@@ -735,8 +722,7 @@ def type1(item,title):
     except Exception as e:
             logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
 # 老金鱼暴击
-def type2(item,title):
-    logging.info(f"用户 {item['traderPublicKey']} 请求老鲸鱼暴击 {item['mint']}")
+def type2(item):
     try:
         #市值检测
         if item['market_cap'] < TYPE2_SETTINGS_MARKET_CAP_LIMIT:#老鲸鱼暴击的条件 小于设定的市值时 
@@ -757,19 +743,31 @@ def type2(item,title):
         #检测重复并播报到TG群
         if save_success_to_redis(mint=item['mint'],type=2,address=item['traderPublicKey']):
             hold_data["traderPublicKey"] = item['traderPublicKey']
-            hold_data["title"] = title
+            hold_data["title"] = f"老鲸鱼CA:{item['symbol']}"
             hold_data['mint'] = item['mint']
             hold_data['solAmount'] = item['solAmount']
             hold_data['signature'] = item['signature']
             hold_data['market_cap'] = item['market_cap']#市值
             hold_data['alert_data'] = item['alert_data']#黑盘占比
-            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}",item)
+            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {hold_data['title']}",item)
              
         #保存播报记录
         item['type'] = 2 
         save_transaction(item)
     except Exception as e:
         logging.error("捕捉到的异常:", e)      
+
+#从当前买入的时间和用户交易记录最后一笔的时间相比的方法 
+def calculate_time_diff(item,type,transactions_data,day_interval):
+    logging.info(f"用户 {item['traderPublicKey']} {item['mint']} 请求type-{type}...")
+    now = datetime.now() #当前时间
+    block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
+    time_diff = (now - block_time).total_seconds()
+    if time_diff < (day_interval * 86400):
+        logging.error(f"用户 {item['traderPublicKey']} {item['mint']} 请求type-{type} 时间不满足 {time_diff/86400} 设定值 {day_interval}")
+        return True
+    return False
+
 # 查看用户一段时间的交易记录
 def fetch_user_transactions(start_time,end_time,item):
     url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={start_time}&block_time[]={end_time}&page=1&page_size=10&sort_by=block_time&sort_order=desc"
