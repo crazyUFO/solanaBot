@@ -15,7 +15,7 @@ from cloudbypass import Proxy
 from gmgn import gmgn
 from serverFun import ServerFun
 from tg_htmls import tg_message_html_1,tg_message_html_3, tg_message_html_4, tg_message_html_5
-from utils import check_historical_frequency
+from utils import flatten_dict,check_historical_frequency,is_chinese
 
 from zoneinfo import ZoneInfo
 from logging.handlers import TimedRotatingFileHandler
@@ -51,7 +51,7 @@ ADDRESS_EXPIRY = "expiry:" #今日交易超限制，新账号，这种的就直�
 # 创建线程池执行器
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
-#redis 缓存查询的 代币 dev数据 去重数据 市值数据 
+#redis 缓存查询的 代币 dev数据 去重数据 市值数据
 MINT_SUBSCRBED = "mint_subscrbed:"#redis存放已经订阅过的地址 //去重
 TXHASH_SUBSCRBED = "txhash_subscrbed:"#redis 按订单去重 原子锁
 MINT_DEV_DATA = "mint_dev_data:"#缓存10秒之内的dev数据不在请求
@@ -62,6 +62,9 @@ MINT_POOL_DATA = "mint_pool_data:"#代币流动性缓存10秒
 #2025.1.2日更新增加新播报需求
 MINT_15DAYS_ADDRESS = "mint_15days_address:"
 MINT_ZHUANZHANG_ADDRESS = "mint_zhuanzhang_address:"
+#2025.1.27日更新跨度扫描 的全局订单
+MINT_ODDERS = "mint_odders"
+SYMBOL_UNIQUE = "symbol_unique:" #重复名字的去重
 #2025.1.16更新 缓存所有发送到后台里的 代币 需要更新最高市值用到
 MINT_NEED_UPDATE_MAKET_CAP = "mint_need_update_maket_cap:"
 MINT_NEED_UPDATE_MAKET_CAP_LOCKED = "mint_need_update_maket_cap_locked"#因为多台服务器的原因，每次只有一台服务器进入更新
@@ -120,7 +123,6 @@ proxy_expired = {"create_time": time.time(), "proxy": str(proxy.copy().set_expir
 
 # 初始化全局变量用于订阅和价格管理
 subscriptions = {}
-mint_odders = {} #所有订阅下的订单
 sol_price = {"create_time": None, "price": 0}
 
 # 初始化 gmgn API
@@ -157,40 +159,111 @@ async def redis_get_settings():
             pubsub.close()
 # 获取远程配置函数
 async def fetch_config(server_id = SERVER_ID):
-    try:
-        response = server_fun_api.getConfigById(server_id=server_id)
-        response.raise_for_status()  # 如果请求失败，则抛出异常
+    global headers
+    global SOLSCAN_TOKEN, HELIUS_API_KEY, PURCHASE_AMOUNT, DAY_INTERVAL,REDIS_EX_TIME,MIN_PURCHASE_AMOUNT
+    global MIN_MARKET_CAP, MAX_MARKET_CAP, DEV_TEAM_SOL_WITH_SUB, DEV_TEAM_SOL_WITHOUT_SUB
+    global BLACKLIST_RATIO, PROFIT_7D, WIN_RATE_7D, BUY_FREQUENCY
+    global REMOVE_DUPLICATES_BY_NAME, REMOVE_CHINESE_BY_NAME, SUBSCRIPTION_CYCLE
+    global TRANSACTION_ADDRESS_GROUP, SPREAD_DETECTION_SETTINGS_ENABLED
+    global SPREAD_DETECTION_SETTINGS_SPREAD, SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES
+    global SPREAD_DETECTION_SETTINGS_MAX_COUNT, TYPE1_SETTINGS_TRANSACTION_ENABLED
+    global TYPE1_SETTINGS_PURCHASE_AMOUNT, TYPE1_SETTINGS_DAY_INTERVAL, TYPE1_SETTINGS_MARKET_CAP_LIMIT
+    global TYPE1_SETTINGS_SOL_LIMIT, TYPE1_SETTINGS_TOKEN_BALANCE, TYPE2_SETTINGS_TRANSACTION_ENABLED
+    global TYPE2_SETTINGS_PURCHASE_AMOUNT, TYPE2_SETTINGS_DAY_INTERVAL, TYPE2_SETTINGS_MARKET_CAP_LIMIT
+    global TYPE2_SETTINGS_PROFIT_PER_TOKEN, TYPE2_SETTINGS_PROFIT_RATE_PER_TOKEN, TYPE3_SETTINGS_TRANSACTION_ENABLED
+    global TYPE3_SETTINGS_DAY_INTERVAL, TYPE4_SETTINGS_TRANSACTION_ENABLED, TYPE4_SETTINGS_DAY_INTERVAL
+    global TYPE4_SETTINGS_PARENT_WALLET_TRANSFER_SOL, TYPE4_SETTINGS_TOKEN_QUANTITY, TYPE4_SETTINGS_TOKEN_BALANCE
+    global SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN, SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX
+    global TYPE3_SETTINGS_PURCHASE_AMOUNT, TYPE4_SETTINGS_PURCHASE_AMOUNT, ALLOWED_TRAN_TYPES,TYPE4_SETTINGS_PARENT_WALLET_TRANSACTION_RANGE
+    #全局设置
+    REDIS_EX_TIME = None #从服务器拿到四个类型的周期数据，取最短的那个作为时间周期
+    MIN_PURCHASE_AMOUNT = None #从服务器拿到四个类型的单笔购买数据，取最少得那个
+    SOLSCAN_TOKEN = None #solscan token
+    HELIUS_API_KEY = None # helius api token
+    PURCHASE_AMOUNT = None # 单笔购买
+    DAY_INTERVAL = None # 间隔时间
+    MIN_MARKET_CAP = None #最小市值
+    MAX_MARKET_CAP = None #最大市值
+    DEV_TEAM_SOL_WITH_SUB = None # dev有小号 sol
+    DEV_TEAM_SOL_WITHOUT_SUB = None #dev没小号sol
+    BLACKLIST_RATIO = None #黑盘比例
+    PROFIT_7D = None #七天盈利率
+    WIN_RATE_7D = None #七天胜率
+    BUY_FREQUENCY = None #七天购买频率
+    REMOVE_DUPLICATES_BY_NAME = None # 移除同名
+    REMOVE_CHINESE_BY_NAME = None #移除中文名
+    SUBSCRIPTION_CYCLE = None # 订阅周期
+    TRANSACTION_ADDRESS_GROUP = None #交易地址组
+    ALLOWED_TRAN_TYPES = None # 允许交易的类型
+    SPREAD_DETECTION_SETTINGS_ENABLED = None # 跨度开关
+    SPREAD_DETECTION_SETTINGS_SPREAD = None # 跨度
+    SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES = None #允许出现的次数
+    SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN = None # 金额范围最小
+    SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX = None #金额范围最大
+    SPREAD_DETECTION_SETTINGS_MAX_COUNT = None # 允许出现的次数计次
+    #类型一设置
+    TYPE1_SETTINGS_TRANSACTION_ENABLED = None #交易开关
+    TYPE1_SETTINGS_PURCHASE_AMOUNT = None#单独设置购买金额
+    TYPE1_SETTINGS_DAY_INTERVAL = None # 单独设置间隔时间
+    TYPE1_SETTINGS_MARKET_CAP_LIMIT = None #最小市值
+    TYPE1_SETTINGS_SOL_LIMIT = None # sol的余额
+    TYPE1_SETTINGS_TOKEN_BALANCE = None # tokens 余额
+    #类型二设置
+    TYPE2_SETTINGS_TRANSACTION_ENABLED = None #交易开关
+    TYPE2_SETTINGS_PURCHASE_AMOUNT = None #单独设置购买
+    TYPE2_SETTINGS_DAY_INTERVAL = None #单独设置间隔时间
+    TYPE2_SETTINGS_MARKET_CAP_LIMIT = None #最小市值
+    TYPE2_SETTINGS_PROFIT_PER_TOKEN = None #单币盈利
+    TYPE2_SETTINGS_PROFIT_RATE_PER_TOKEN = None #单币盈利率
+    #类型三设置
+    TYPE3_SETTINGS_TRANSACTION_ENABLED = None #交易开关
+    TYPE3_SETTINGS_PURCHASE_AMOUNT = None #单独设置购买金额
+    TYPE3_SETTINGS_DAY_INTERVAL = None #单独设置间隔时间
+    #类型四设置
+    TYPE4_SETTINGS_TRANSACTION_ENABLED = None #交易开关
+    TYPE4_SETTINGS_PURCHASE_AMOUNT = None #单独设置交易金额
+    TYPE4_SETTINGS_DAY_INTERVAL = None #单独设置间隔时间
+    TYPE4_SETTINGS_PARENT_WALLET_TRANSACTION_RANGE = None #交易记录查询范围
+    TYPE4_SETTINGS_PARENT_WALLET_TRANSFER_SOL = None # 父钱包转账sol
+    TYPE4_SETTINGS_TOKEN_QUANTITY = None #账户代币数
+    TYPE4_SETTINGS_TOKEN_BALANCE = None #代币余额
+
+    
+    response = server_fun_api.getConfigById(server_id=server_id)
+    if response.status_code == 200:
         data = response.json()['data']
         config = json.loads(data.get('settings'))
-        global SOLSCAN_TOKEN,HELIUS_API_KEY,SINGLE_SOL,DAY_NUM,BLANCE,TOKEN_BALANCE,MIN_TOKEN_CAP,MAX_TOKEN_CAP,TOTAL_PROFIT,TOKEN_EXPIRY,CALL_BACK_URL,MIN_DAY_NUM,LIQUIDITY,ALTER_PROPORTION,ALLOWED_TRAN_TYPES,ALLOWED_DEV_NUM_HAS_CHILD,ALLOWED_DEV_NUM
-        TOKEN_EXPIRY = config.get("TOKEN_EXPIRY") * 60
-        SINGLE_SOL = config.get("SINGLE_SOL")
-        MIN_TOKEN_CAP = config.get("MIN_TOKEN_CAP")
-        MAX_TOKEN_CAP = config.get("MAX_TOKEN_CAP")
-        TOTAL_PROFIT = config.get("TOTAL_PROFIT")
-        TOKEN_BALANCE = config.get("TOKEN_BALANCE")
-        HELIUS_API_KEY = config.get("HELIUS_API_KEY")
-        SOLSCAN_TOKEN = config.get("SOLSCAN_TOKEN")
-        DAY_NUM = config.get("DAY_NUM")
-        MIN_DAY_NUM = 0.7 # 虽小满足播报的单位，同时也是redis缓存释放的时间
-        LIQUIDITY = 4000 #流动性
-        ALTER_PROPORTION = 0.6 #感叹号占比
-        ALLOWED_TRAN_TYPES = [1,2,3,4] #允许的交易类型
-        ALLOWED_DEV_NUM_HAS_CHILD = 15 #dev数据上限 代表DEV团队整体持有多少 有小号
-        ALLOWED_DEV_NUM = 6 #没有小号
-        BLANCE = config.get("BLANCE")
-        url = config.get("CALL_BACK_URL") ##获取回调地址组
-        # 处理空字符串的情况
-        CALL_BACK_URL = url.replace(" ", "").split("\n") if url else []
-        logging.info("配置加载成功")
-        # 配置加载完成后创建请求头
-        global headers
+        allowed_tran_types = []
+        #提取交易类型
+        if config.get("spread_detection_settings_enabled"):
+            # 获取 amount_range 并解析 min 和 max
+            amount_range = config.get("spread_detection_settings_amount_range")
+            min_val, max_val = map(float, amount_range.split('-'))
+            config['spread_detection_settings_amount_range_min'] = min_val
+            config['spread_detection_settings_amount_range_max'] = max_val
+        #允许交易的 和 没有单独设置单笔购买和时间跨度的
+        for i in range(1, 5):
+            if not config.get(f"type{i}_settings_purchase_amount"):
+                config[f"type{i}_settings_purchase_amount"] = config["purchase_amount"]
+            if config.get(f"type{i}_settings_transaction_enabled"):
+                allowed_tran_types.append(i)
+        config['allowed_tran_types'] = allowed_tran_types
+        url = config.get('transaction_address_group')
+        config['transaction_address_group'] = url.replace(" ", "").split("\n") if url else []
+        #订阅周期秒化
+        config['subscription_cycle'] = config['subscription_cycle'] * 60
+        #设定单子的最少时间过期
+        config['redis_ex_time'] = min(config['type1_settings_day_interval'],config['type2_settings_day_interval'],config['type3_settings_day_interval'],config['type4_settings_day_interval'])
+        #设置单子的最小排除单笔购买
+        config['min_purchase_amount'] = min(config['type1_settings_purchase_amount'],config['type2_settings_purchase_amount'],config['type3_settings_purchase_amount'],config['type4_settings_purchase_amount'])
+        config = flatten_dict(config)
+        #把confg中的所有key初始化到全局变量
+        globals().update(config)
         headers = {
-            "token": SOLSCAN_TOKEN
+            "token":SOLSCAN_TOKEN
         }
-    except requests.exceptions.RequestException as e:
-        logging.error(f"获取配置失败: {e}")
-        # 可以设置默认配置或者退出程序
+    else:
+        logging.error(f"获取配置失败: {response.text}")
         exit(1)
 async def get_sol_for_usdt():
     proxies = {
@@ -223,14 +296,13 @@ async def cleanup_subscriptions():
         # 遍历所有订阅，最后一次交易时间超时 12.31日更新 并且要低于市值设定最小值或者高于市值设定最大值
         for mint_address, data in subscriptions.items():            
             market_cap_usdt = data['market_cap_sol'] * sol_price['price']
-            if current_time - data['last_trade_time'] >= TOKEN_EXPIRY and (market_cap_usdt < MIN_TOKEN_CAP or market_cap_usdt >= MAX_TOKEN_CAP):
-                logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {TOKEN_EXPIRY / 60} 分钟")
+            if current_time - data['last_trade_time'] >= SUBSCRIPTION_CYCLE and (market_cap_usdt < MIN_MARKET_CAP or market_cap_usdt >= MAX_MARKET_CAP):
+                logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {SUBSCRIPTION_CYCLE / 60} 分钟")
                 expired_addresses.append(mint_address)
         # 移除过期的订阅
         for mint_address in expired_addresses:
             try:
                 del subscriptions[mint_address]
-                del mint_odders[mint_address]
             except Exception as e:
                 logging.error(f"在移除 mint_address 报错:{e}")
             #redis里刷新最高市值的也移除一下
@@ -259,7 +331,7 @@ async def cleanup_subscriptions():
         await asyncio.sleep(60)  # 每过1小时检查一次
 
 async def websocket_handler():
-    global ws,countdown_time
+    global ws
     while True:
         try:
             logging.info("正在尝试建立 WebSocket 连接...")
@@ -289,14 +361,10 @@ async def websocket_handler():
                             #计算代币美元单价
                             message['sol_price_usd'] = sol_price['price']                           
                             if txType == 'create':
-                                #把重复名称的去掉
-                                if not symbol_unique(message['symbol']):
-                                    logging.error(f"symbol {message['symbol']} 已经存在")
-                                    continue
                                 await subscribed_new_mq_list.put(message)  # 识别订单创建
                             elif txType == "buy" and "solAmount" in message:
-                                #1.24日更新，把每个mint下面的订单都记录，以便推单统计 #深度拷贝以防杂数据
-                                mint_odders.setdefault(mint, []).append(copy.deepcopy(message))
+                                #1.24日更新，把每个mint下面的订单都记录，以便推单统计
+                                set_odder_to_redis(mint,message)
                                 #加入最后活跃时间
                                 if mint in subscriptions:
                                     subscriptions[mint].update({
@@ -312,7 +380,7 @@ async def websocket_handler():
                                         #存过后台的，直接刷新市值
                                         r.set(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint}",json.dumps(subscriptions[mint]),xx=True,ex=7200)
                                 #扫描符合要求的订单
-                                if message['solAmount'] >= 0.3: ##2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
+                                if message['solAmount'] >= MIN_PURCHASE_AMOUNT:
                                     lock_acquired = r.set(f"{TXHASH_SUBSCRBED}{message['signature']}","原子锁1秒", nx=True, ex=1)  # 锁5秒自动过期
                                     if lock_acquired:
                                         #因为是全局的，以防脚本之间订阅不相同，找不到mint
@@ -393,7 +461,7 @@ async def fair_consumption():
                 if product_data:
                     message = json.loads(product_data)
                     logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']}")
-                    transactions_message_no_list(message)
+                    executor.submit(transactions_message_no_list,message)
                     task_count += 1  # 增加任务计数
                     
                     # 每处理一定数量的任务后更新分数
@@ -457,55 +525,66 @@ async def market_cap_sol_height_update():
         await asyncio.sleep(300)  # 每过5分钟检查一次
 
 #订单不走列队
-def transactions_message_no_list(data):
-    check = redis_client().exists(f"{ADDRESS_EXPIRY}{data['traderPublicKey']}")
-    if not check: #排除了那些频繁交易的 减少API输出
-        executor.submit(check_user_transactions, data)
+def transactions_message_no_list(item):
+    '''
+        先排除redis中存在的
+        为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
+    '''
+    check = redis_client().exists(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}")
+    if not check:
+        redis_client().set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400)) #买入直接排除 进行节流
+        #推单检测
+        if SPREAD_DETECTION_SETTINGS_ENABLED:
+            mint_odders = json.loads(redis_client().hget(MINT_ODDERS,item['mint']))
+            if not check_historical_frequency(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX,SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES,SPREAD_DETECTION_SETTINGS_MAX_COUNT,mint_odders,logging):
+                return
+
+        now = datetime.now() #当前时间
+        start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
+        transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
+        if not transactions_data:
+            logging.error(f"用户 {item['traderPublicKey']} 没有交易记录")
+            return 
+        #多线程调用GMGN
+        future_dev = executor.submit(fetch_mint_dev,item)
+        future_alert = executor.submit(fetch_user_wallet_holdings_show_alert,item)
+        # 等待任务完成
+        dev_data = future_dev.result()
+        alert_data = future_alert.result()
+        #检查dev数据
+        if dev_data:##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号
+            return
+        #检查感叹号数据
+        if alert_data and alert_data > BLACKLIST_RATIO:
+            return
+        
+        #4种type都需要用到的数据
+        item['alert_data'] = alert_data
+        item['symbol'] = item['subscriptions']['symbol']
+        item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
+        item['isSentToExchange'] = 0 #是否已经发送到交易端
+        item['mint_create_time_utc'] = item['subscriptions']['create_time_utc'] #代币创建时间
+
+        if item['solAmount'] >= TYPE1_SETTINGS_PURCHASE_AMOUNT or item['solAmount'] >= TYPE2_SETTINGS_PURCHASE_AMOUNT:#类型1 2
+            data =  analyze_transaction_records(transactions_data,item,3)
+            if not data:
+                return 
+            if data['time_diff'] >= DAY_INTERVAL:#类型1类型2满足3天以上的
+                executor.submit(type1, item,f"老鲸鱼CA:{item['symbol']}")  #老鲸鱼
+                executor.submit(type2, item,f"暴击CA:{item['symbol']}")  #老鲸鱼暴击
+            else:
+                if data['time_diff'] >=TYPE1_SETTINGS_DAY_INTERVAL and data['count'] == 0:
+                    executor.submit(type1, item,f"老鲸鱼CA:{item['symbol']}")  #老鲸鱼
+                if data['time_diff'] >=TYPE2_SETTINGS_DAY_INTERVAL and data['count'] == 0:
+                    executor.submit(type2, item,f"暴击CA:{item['symbol']}")  #老鲸鱼
+        if item['solAmount'] >= TYPE3_SETTINGS_PURCHASE_AMOUNT:
+            executor.submit(type3, item,transactions_data)
+        if item['solAmount'] >= TYPE4_SETTINGS_PURCHASE_AMOUNT:
+            executor.submit(type4, item,transactions_data)
     else:
-        logging.info(f"用户 {data['traderPublicKey']} 已被redis排除 {MIN_DAY_NUM} 天")
-#拿交易记录
-def check_user_transactions(item):
-    '''
-    为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
-    '''
-    # print(f"数据是:{check_historical_frequency(item['mint'],item['signature'],30,0,0.3,2,2,mint_odders,logging)}")
-    # return
-    now = datetime.now() #当前时间
-    start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
-    transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
-
-    #检查dev数据
-    if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号
-        return
-    logging.info(f"代币 {item['mint']} dev检测合格")
-
-    #检查感叹号数据
-    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'],item['mint'])
-    if alert_data is None:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
-        return
-    if alert_data > ALTER_PROPORTION:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
-        return
-    logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
-    
-    #4种type都需要用到的数据
-    item['alert_data'] = alert_data
-    item['symbol'] = item['subscriptions']['symbol']
-    item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
-    item['isSentToExchange'] = 0 #是否已经发送到交易端
-    item['mint_create_time_utc'] = item['subscriptions']['create_time_utc'] #代币创建时间
-
-
-    if item['solAmount'] >= SINGLE_SOL:
-        #老鲸鱼和老鲸鱼暴击
-        executor.submit(ljy_ljy_bj, item,transactions_data)
-    #新版15天钱包播报
-    executor.submit(ljy_15days, item,transactions_data)
-    #新版老钱包转账播报
-    executor.submit(ljy_zzqb, item,transactions_data)
+        logging.info(f"用户 {item['traderPublicKey']} 已被redis排除")
 #新版更新老鲸鱼转账钱包
-def ljy_zzqb(item,transactions_data):
+def type4(item,transactions_data):
     '''
     老鲸鱼转账钱包 
     内容 抓内盘买单（买单钱包必须是操作不频繁24小时内没操作过 买卖的再去抓上级） 
@@ -513,20 +592,17 @@ def ljy_zzqb(item,transactions_data):
 
     符合条件播报钱包和上级钱包 和ca  一级钱包购买大于0.3
     '''
-    if len(transactions_data)==0:
-        logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号（老钱包转账）")
-        return
     now = datetime.now() #当前时间
     block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
     time_diff = (now - block_time).total_seconds()
-    if time_diff < 12 * 3600: #计算小时数
+    if time_diff < TYPE4_SETTINGS_DAY_INTERVAL * 86400: 
         return
-    start_time = int((now - timedelta(days=7)).timestamp())#获取近72小时内的转账记录
+    start_time = int((now - timedelta(days=TYPE4_SETTINGS_PARENT_WALLET_TRANSACTION_RANGE)).timestamp())#获取近72小时内的转账记录
     transfer_data = fetch_user_transfer(start_time,now.timestamp(),item['traderPublicKey'])
     father_address = None
     for value in transfer_data:
         sol_amount = value['amount']/(10**value['token_decimals'])
-        if sol_amount>=2 and value['from_address'] not in exchange_wallets:#2个以上转账 并且不是交易所地址
+        if sol_amount >= TYPE4_SETTINGS_PARENT_WALLET_TRANSFER_SOL and value['from_address'] not in exchange_wallets:#2个以上转账 并且不是交易所地址
             father_address = value['from_address']
             break
     if not father_address:
@@ -537,7 +613,7 @@ def ljy_zzqb(item,transactions_data):
     total_balance = data.get('total_balance')
     sol = data.get('sol')
     logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
-    if len(tokens)>=2 and total_balance >=20000:
+    if len(tokens)>=TYPE4_SETTINGS_TOKEN_QUANTITY and total_balance >=TYPE4_SETTINGS_TOKEN_BALANCE:
 
         #检测 并发送到交易端
         if send_to_trader(item=item,type=4):
@@ -558,15 +634,11 @@ def ljy_zzqb(item,transactions_data):
         #保存播报记录
         item['type'] = 4
         save_transaction(item)
-
-def ljy_15days(item, transactions_data):
+#老鲸鱼15天钱包
+def type3(item, transactions_data):
     '''
         2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
     '''
-    if len(transactions_data) == 0:
-        logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号（15天钱包的方法）")
-        return
-
     now = datetime.now()  # 当前时间
     block_time = datetime.fromtimestamp(transactions_data[0]['block_time'])
     time_diff = (now - block_time).days
@@ -613,69 +685,19 @@ def ljy_15days(item, transactions_data):
         #保存播报记录
         item['type'] = 3
         save_transaction(item)
-# 异步请求用户交易记录和余额
-def ljy_ljy_bj(item,transactions_data):
-    '''
-        老鲸鱼3种情况：
-        1.今日第一笔交易和前一次交易要间隔24小时,中间不能出现任何交易单--1天老鲸鱼
-        2.今日第一笔交易和前一次交易要间隔48小时,中间的买入单要在5单一下--2天老鲸鱼
-        3.今日第一笔交易和前一次交易要间隔72小时，中间买入单要在5单以下---3天老鲸鱼
-
-        老鲸鱼暴击：
-        1.单次买入0.5以上，tokens余额再1W以上，总营收超过1w美金以上
-    '''
-    try:
-        if len(transactions_data)==0:
-            logging.info(f"用户 {item['traderPublicKey']} 没有交易 疑似是新账号 (老鲸鱼 老鲸鱼暴击)")
-            return
-        now = datetime.now() #当前时间
-        today = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())#今天的0点
-        sum = 0 #计算今日内的买入条数
-        last_time = None #存放今日之外的最后一笔交易的时间
-        first_time = now.timestamp() #这次交易的时间
-        for value in transactions_data: #有几种情况 1.用户今天只交易了一条没有以往的数据 first_time有值 last_time 是none  sum <= 10 2.用户今日数据超标 first有值 last_time 是none sum > 10 3.今日用户没有交易 但是有以往的数据 first_time 是none last_time 是 有值的 sum是0
-            if value['block_time'] - today > 0:#区块链时间减去今天0点的时间大于0 代表今天之内交易的
-                routers = value.get('routers',{})   #token1 的值 1.sol原生代币 2.sol的原始币 3.usdc
-                if routers and "token1" in routers and (routers['token1'] =="So11111111111111111111111111111111111111112" or routers['token1'] =="So11111111111111111111111111111111111111111" or routers['token1'] == 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'): #只计算买入 
-                    sum=sum+1
-            else:
-                last_time = value['block_time'] # 当区块链时间有一个是今天以外的时间，将这个对象取出并结束循环
-                break
-        if sum > 3:#前面只能出现4条买入，加上自己就是第五条
-            #redis 记录大于5条的用户
-            redis_client().set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","当日大于5条交易",nx=True,ex=int(86400 * MIN_DAY_NUM))
-            logging.info(f"用户 {item['traderPublicKey']} 今日交易买入量已超5条")
-            return
-        if not last_time:
-            #redis 记录新用户
-            redis_client().set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","新账号",nx=True,ex=int(86400 * MIN_DAY_NUM))
-            logging.info(f"用户 {item['traderPublicKey']} 没有今日之外的交易数据")
-            return
-        time_diff = (first_time - last_time) / 86400
-        logging.info(f"用户 {item['traderPublicKey']} 今日买入 {sum}笔 今日第一笔和之前最后一笔交易时间差为 {time_diff} 天")
-
-        with ThreadPoolExecutor(max_workers=20) as nested_executor:  
-            if time_diff>=DAY_NUM:#两天以上老鲸鱼 老鲸鱼暴击
-                nested_executor.submit(check_user_balance, item,f"老鲸鱼CA:{item['symbol']}")  #老鲸鱼
-                nested_executor.submit(check_user_wallet, item,f"暴击CA:{item['symbol']}")  #老鲸鱼暴击
-            elif time_diff>=MIN_DAY_NUM and  sum == 0:#一天以上老鲸鱼 老鲸鱼暴击 改成了15小时就报               
-                nested_executor.submit(check_user_balance, item,f"老鲸鱼CA:{item['symbol']}")  #老鲸鱼
-                nested_executor.submit(check_user_wallet, item,f"暴击CA:{item['symbol']}")  #老鲸鱼暴击
-    except Exception as e:
-         logging.error("用户交易记录的异常:", e)
-# 请求用户的账户余额并通知 老鲸鱼播报
-def check_user_balance(item,title):
+# 老鲸鱼钱包
+def type1(item,title):
     try:
         #市值检测
-        if item['market_cap'] < MIN_TOKEN_CAP:#老鲸鱼暴击的条件 小于设定的市值时 
-            logging.error(f"代币 {item['mint']} 的市值 {item['market_cap']} 设定 {MIN_TOKEN_CAP} 不满足")
+        if item['market_cap'] < TYPE1_SETTINGS_MARKET_CAP_LIMIT:#老鲸鱼暴击的条件 小于设定的市值时 
+            logging.error(f"代币 {item['mint']} 的市值 {item['market_cap']} 设定 {TYPE1_SETTINGS_MARKET_CAP_LIMIT} 不满足")
             return
         # tokens 余额检测
         data = fetch_user_tokens(item['traderPublicKey'])
         total_balance = data.get('total_balance')
         sol = data.get('sol')
         logging.info(f"用户 {item['traderPublicKey']} tokens:{total_balance} sol:{sol}")
-        if total_balance < TOKEN_BALANCE:
+        if total_balance < TYPE1_SETTINGS_TOKEN_BALANCE:
             return
         
         #检测 并发送到交易端
@@ -694,13 +716,13 @@ def check_user_balance(item,title):
         save_transaction(item)
     except Exception as e:
             logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
-# 请求用户的卖出单 老金鱼暴击
-def check_user_wallet(item,title):
+# 老金鱼暴击
+def type2(item,title):
     logging.info(f"用户 {item['traderPublicKey']} 请求老鲸鱼暴击 {item['mint']}")
     try:
         #市值检测
-        if item['market_cap'] < MIN_TOKEN_CAP:#老鲸鱼暴击的条件 小于设定的市值时 
-            logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {MIN_TOKEN_CAP} 不满足")
+        if item['market_cap'] < TYPE2_SETTINGS_MARKET_CAP_LIMIT:#老鲸鱼暴击的条件 小于设定的市值时 
+            logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {TYPE2_SETTINGS_MARKET_CAP_LIMIT} 不满足")
             return
         # 单币盈利检测 大于设定值 ，并且盈利率要大于300%
         data = fetch_user_wallet_holdings(item['traderPublicKey'])
@@ -708,8 +730,8 @@ def check_user_wallet(item,title):
             logging.info(f"用户 {item['traderPublicKey']} 代币盈亏数据是空")
             return
         hold_data = data
-        if float(hold_data['realized_profit']) < TOTAL_PROFIT or float(hold_data['realized_pnl']) < 3:
-            logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TOTAL_PROFIT} 盈利率为{(float(hold_data['realized_pnl']) * 100):.2f}")
+        if float(hold_data['realized_profit']) < TYPE2_SETTINGS_PROFIT_PER_TOKEN or float(hold_data['realized_pnl']) < TYPE2_SETTINGS_PROFIT_RATE_PER_TOKEN:
+            logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TYPE2_SETTINGS_PROFIT_PER_TOKEN} 盈利率为{(float(hold_data['realized_pnl']) * 100):.2f}")
             return
         #检测 并发送到交易端
         if send_to_trader(item=item,type=2):
@@ -732,7 +754,7 @@ def check_user_wallet(item,title):
         logging.error("捕捉到的异常:", e)      
 # 查看用户一段时间的交易记录
 def fetch_user_transactions(start_time,end_time,item):
-    url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={start_time}&block_time[]={end_time}&page=1&page_size=20&sort_by=block_time&sort_order=desc"
+    url = f"https://pro-api.solscan.io/v2.0/account/defi/activities?address={item['traderPublicKey']}&activity_type[]=ACTIVITY_TOKEN_SWAP&activity_type[]=ACTIVITY_AGG_TOKEN_SWAP&block_time[]={start_time}&block_time[]={end_time}&page=1&page_size=10&sort_by=block_time&sort_order=desc"
     response= requests.get(url,headers=headers)
     if response.status_code == 200:
         response_data =  response.json()
@@ -788,7 +810,7 @@ def fetch_user_wallet_holdings(address):
             if holdings:
                 holdings_data = holdings[0]
                 logging.info(f"用户 {address} 代币盈利已缓存")
-                redis_client().set(f"{ADDRESS_HOLDINGS_DATA}{address}",json.dumps(holdings_data),ex=int(86400 * MIN_DAY_NUM))
+                redis_client().set(f"{ADDRESS_HOLDINGS_DATA}{address}",json.dumps(holdings_data),ex=int(86400 * REDIS_EX_TIME))
             else:
                  logging.info(f"用户 {address} 没有有效的代币盈利数据，不进行缓存")
             return holdings_data
@@ -825,18 +847,20 @@ def fetch_mint_dev(item):
     #检查dev团队是否跑路，跑路直接放行通过
     unrealized_profits = sum(record["unrealized_profit"] for record in data)
     if data and round(unrealized_profits, 5) <=0:
+        logging.info(f"代币 {mint} dev已清仓")
         return False
     
     #检查dev团队持仓 
     sols = sum(record["quote_amount"] for record in data)
     if len(data) > 1:#有小号
-        if sols>=ALLOWED_DEV_NUM_HAS_CHILD:
-            logging.error(f"代币 {mint} dev团队存在小号 持仓 {sols} sol超过 {ALLOWED_DEV_NUM_HAS_CHILD}")
+        if sols>=DEV_TEAM_SOL_WITH_SUB:
+            logging.error(f"代币 {mint} dev团队存在小号 持仓 {sols} sol超过 {DEV_TEAM_SOL_WITH_SUB}")
             return True
     else:#没小号
-        if sols>=ALLOWED_DEV_NUM:
-            logging.error(f"代币 {mint} dev团队不存在小号 持仓 {sols} sol超过 {ALLOWED_DEV_NUM}")
+        if sols>=DEV_TEAM_SOL_WITHOUT_SUB:
+            logging.error(f"代币 {mint} dev团队不存在小号 持仓 {sols} sol超过 {DEV_TEAM_SOL_WITHOUT_SUB}")
             return True
+    logging.info(f"代币 {mint} dev检测合格")
     return False
 #请求用户的token和sol总和
 def fetch_user_tokens(address):
@@ -871,6 +895,7 @@ def fetch_user_account_sol(address):
 def send_to_trader(item,type):
     mint = item['mint']
     traderPublicKey = item['traderPublicKey']
+    symbol = item['symbol']
     if type not in ALLOWED_TRAN_TYPES:
         #失败原因放进去
         item['failureReason'] = f"交易类型不允许"
@@ -883,14 +908,28 @@ def send_to_trader(item,type):
 
         logging.error(f"用户 {traderPublicKey} 已被拉黑阻止交易 交易类型 {type}")
         return False
-    if not CALL_BACK_URL:
+    if not TRANSACTION_ADDRESS_GROUP:
         #失败原因放进去
         item['failureReason'] = f"回调地址没有填写"
 
         logging.error(f"回调地址没有填写")
         return False
+    #把重复名称的去掉
+    if REMOVE_DUPLICATES_BY_NAME:
+        if not symbol_unique(symbol,mint):
+            item['failureReason'] = f"symbol {symbol} 同名重复"
+            logging.error(f"symbol {symbol} 同名重复")
+            return False
+    
+    #把中文的去掉
+    if REMOVE_CHINESE_BY_NAME:
+        if is_chinese(symbol):
+            item['failureReason'] = f"symbol {symbol} 是中文"
+            logging.error(f"symbol {symbol} 是中文,交易端排除")
+            return False
+    
     #看看redis是否已经发送到交易端了
-    status = redis_client().set(f"{MINT_SUCCESS}{mint}", type, nx=True, ex=int(86400 * MIN_DAY_NUM))
+    status = redis_client().set(f"{MINT_SUCCESS}{mint}", symbol, nx=True, ex=int(86400 * REDIS_EX_TIME))
     if not status:
         #失败原因放进去
         item['failureReason'] = f"已经发送过交易端了"
@@ -900,7 +939,7 @@ def send_to_trader(item,type):
     #开始发送到交易所记录时间
     item['sentToExchangeAt'] = get_utc_now()
     #开始通知交易端 多线程等待返回
-    futures = [executor.submit(call_trade, mint,url,type) for url in CALL_BACK_URL]
+    futures = [executor.submit(call_trade, mint,url,type) for url in TRANSACTION_ADDRESS_GROUP]
     # 等待并获取所有结果
     msg = ""
     flag = False
@@ -916,6 +955,7 @@ def send_to_trader(item,type):
     if not flag:#所有地址都调用失败，删除redis记录
         logging.info(f"代币 {mint} 调用所有地址调用都失败 删掉redis记录")
         redis_client().delete(f"{MINT_SUCCESS}{mint}")
+        redis_client().delete(f"{SYMBOL_UNIQUE}{mint}")
     return flag
 def call_trade(mint, call_back_url, type):
     try:
@@ -959,9 +999,10 @@ def fetch_token_pool(mint):
             logging.error(f"代币 {mint} 获取代币流动性失败 {res.text}")
     return {}
 #请求用户的代币列表并对感叹号的数量进行计数
-def fetch_user_wallet_holdings_show_alert(address,mint):
+def fetch_user_wallet_holdings_show_alert(item):
+    address = item['traderPublicKey']
+    mint = item['mint']
     data = redis_client().get(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}")
-
     if data:
         logging.info(f"用户 {address} 取出用户最近活跃 {data} 警告数据百分比")
         return float(data)
@@ -988,10 +1029,16 @@ def fetch_user_wallet_holdings_show_alert(address,mint):
                 proportion = is_show_alert_true_count / total_count
             if proportion:
                 logging.info(f"用户 {address} 用户最近活跃 警告数据百分比 {proportion} 已缓存")
-                redis_client().set(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}",proportion,ex=int(86400 * MIN_DAY_NUM))
+                redis_client().set(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}",proportion,ex=int(86400 * REDIS_EX_TIME))
+                if proportion > BLACKLIST_RATIO:
+                    logging.error(f"用户 {address} 感叹号数据 {proportion} 大于{BLACKLIST_RATIO}")
+                    return None
+                else:
+                    logging.info(f"用户 {address} 感叹号数据 {proportion} 合格")
+                    return proportion
             else:
-                logging.info(f"用户 {address} 用户最近活跃 警告数据百分比 是空 不能缓存")
-            return proportion
+                logging.error(f"用户 {address} 用户最近活跃 警告数据百分比 是空 不能缓存")                
+            return None
         else:
             logging.error(f"用户 {address} 获取用户最近活跃失败 {res.text}")
     return None
@@ -1104,11 +1151,48 @@ def fetch_maket_data(mint):
     else:
         logging.error(f"代币 {mint} 获取市场数据失败 {res.text}")
         return {}
-#暂时的对于symbol进行去重处理
-def symbol_unique(symbol):
+#储存所有订单到redis
+def set_odder_to_redis(mint,data):
     r = redis_client()
-    return r.set(f"symbol_unique:{symbol}", symbol,nx=True, ex=86400)
+    # 深拷贝 message
+    order = copy.deepcopy(data)
+    # 获取 mint 的订单列表，或初始化为空列表
+    current_orders = json.loads(r.hget(MINT_ODDERS, mint) or "[]")
+    # 添加新订单
+    current_orders.append(order)
+    # 存储更新后的订单列表
+    r.hset(MINT_ODDERS, mint, json.dumps(current_orders))
 
+#type1和type2 的分析交易记录
+def analyze_transaction_records(transactions_data,item,count):
+    now = datetime.now() #当前时间
+    today = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())#今天的0点
+    sum = 0 #计算今日内的买入条数
+    last_time = None #存放今日之外的最后一笔交易的时间
+    first_time = now.timestamp() #这次交易的时间
+    for value in transactions_data: #有几种情况 1.用户今天只交易了一条没有以往的数据 first_time有值 last_time 是none  sum <= 10 2.用户今日数据超标 first有值 last_time 是none sum > 10 3.今日用户没有交易 但是有以往的数据 first_time 是none last_time 是 有值的 sum是0
+        if value['block_time'] - today > 0:#区块链时间减去今天0点的时间大于0 代表今天之内交易的
+            routers = value.get('routers',{})   #token1 的值 1.sol原生代币 2.sol的原始币 3.usdc
+            if routers and "token1" in routers and (routers['token1'] =="So11111111111111111111111111111111111111112" or routers['token1'] =="So11111111111111111111111111111111111111111" or routers['token1'] == 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'): #只计算买入 
+                sum=sum+1
+        else:
+            last_time = value['block_time'] # 当区块链时间有一个是今天以外的时间，将这个对象取出并结束循环
+            break
+    if sum > count:#前面只能出现4条买入，加上自己就是第五条
+        logging.info(f"用户 {item['traderPublicKey']} 今日交易买入量已超{count}条")
+        return None
+    if not last_time:
+        #redis 记录新用户
+        logging.info(f"用户 {item['traderPublicKey']} 没有今日之外的交易数据")
+        return None
+    time_diff = (first_time - last_time) / 86400
+    logging.info(f"用户 {item['traderPublicKey']} 今日买入 {sum}笔 今日第一笔和之前最后一笔交易时间差为 {time_diff} 天")
+    return {"time_diff":time_diff,"count":sum}
+
+#暂时的对于symbol进行去重处理
+def symbol_unique(symbol,mint):
+    r = redis_client()
+    return r.set(f"{SYMBOL_UNIQUE}{symbol}", mint,nx=True, ex=86400)
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理

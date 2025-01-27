@@ -1,6 +1,9 @@
 from collections import defaultdict
-
-def check_historical_frequency(mint, txhash, step, min_amount, max_amount,max_allowed_count,total_count,mint_odders,logging):
+import re
+# 在模块级别编译正则表达式
+pattern = re.compile(r'[\u4e00-\u9fff]+')
+#跨度检测方法
+def check_historical_frequency(mint, txhash, step, min_amount, max_amount,max_allowed_count,total_count,data,logging):
     '''
     从txhash开始，往前推step个交易，按时间戳归类，筛选出金额在指定范围内的交易
     mint: 检测的盘
@@ -10,12 +13,11 @@ def check_historical_frequency(mint, txhash, step, min_amount, max_amount,max_al
     max_amount: 最大金额
     max_allowed_count 允许出现的次数
     total_count 计次范围，超出max_allowed_count范围增加一次
-    mint_odders 是存放订单的数组
+    data 是存放订单的数组
     logging 日志写入方法
     '''
-    # 获取指定 mint 地址的交易记录
+    logging.info(f"代币 {mint} 开始跨度扫描....")
     count = 0 
-    data = mint_odders.get(mint, [])
     
     # 找到指定 txhash 签名的交易所在的下标
     tx_index = None
@@ -44,8 +46,9 @@ def check_historical_frequency(mint, txhash, step, min_amount, max_amount,max_al
         filtered_group = [tx for tx in tx_group if min_amount <= tx['solAmount'] <= max_amount]
         if filtered_group and len(filtered_group) >= max_allowed_count:  # 如果该时间戳组有符合条件的交易
             count+=1  
-    return count >= total_count
-
+    logging.info(f"代币 {mint} 签名 {txhash} 检测范围 从{start_index} 至{end_index} 检测金额范围 {min_amount}-{max_amount} 总共有{count}组数据 允许{total_count}组数据")
+    return count > total_count
+#把所有字典的key变成大写
 def flatten_dict(d, parent_key='', sep='_'):
     """
     Flatten the nested dictionary and convert all keys to uppercase.
@@ -64,5 +67,8 @@ def flatten_dict(d, parent_key='', sep='_'):
         else:
             items.append((new_key, v))
     return dict(items)
-    
+#检测中文
+def is_chinese(string):
+    # 检查字符串中是否含有中文
+    return bool(pattern.search(string))
 
