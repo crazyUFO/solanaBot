@@ -540,7 +540,7 @@ def transactions_message_no_list(item):
     '''
     r = redis_client()
     check = r.set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400))
-    if not check:
+    if check:
         #推单检测
         mint_odders = None
         if SPREAD_DETECTION_SETTINGS_ENABLED:
