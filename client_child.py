@@ -403,8 +403,6 @@ async def websocket_handler():
                                         "last_trade_time": time.time(),
                                         "market_cap_sol": message['marketCapSol'],
                                     })
-                        else:
-                            logging.info(f"其他数据 {message}")  
                     except json.JSONDecodeError:
                         logging.error(f"消息解析失败: {data}")
 
