@@ -374,7 +374,7 @@ async def websocket_handler():
                                 await subscribed_new_mq_list.put(message)  # 识别订单创建
                             elif txType == "buy" and "solAmount" in message:
                                 #1.24日更新，把每个mint下面的订单都记录，以便推单统计
-                                #set_odder_to_redis(mint,message,r)
+                                set_odder_to_redis(mint,message,r)
                                 #加入最后活跃时间
                                 if mint in subscriptions:
                                     subscriptions[mint].update({
@@ -541,9 +541,8 @@ def transactions_message_no_list(item):
         为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
     '''
     r = redis_client()
-    check = r.exists(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}")
+    check = r.set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400))
     if not check:
-        r.set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400)) #买入直接排除 进行节流
         #推单检测
         mint_odders = None
         if SPREAD_DETECTION_SETTINGS_ENABLED:
