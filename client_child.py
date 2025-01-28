@@ -374,7 +374,7 @@ async def websocket_handler():
                                 await subscribed_new_mq_list.put(message)  # 识别订单创建
                             elif txType == "buy" and "solAmount" in message:
                                 #1.24日更新，把每个mint下面的订单都记录，以便推单统计
-                                set_odder_to_redis(mint,message,r)
+                                #set_odder_to_redis(mint,message,r)
                                 #加入最后活跃时间
                                 if mint in subscriptions:
                                     subscriptions[mint].update({
@@ -541,16 +541,16 @@ def transactions_message_no_list(item):
     r = redis_client()
     check = r.set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400))
     if check:
-        #推单检测
-        mint_odders = None
-        if SPREAD_DETECTION_SETTINGS_ENABLED:
-            mint_odders = json.loads(r.hget(MINT_ODDERS,item['mint']))
-            if check_historical_frequency(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX,SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES,SPREAD_DETECTION_SETTINGS_MAX_COUNT,mint_odders,logging):
-                return
-        if SPREAD_DETECTION_SETTINGS_ENABLED_TWO:
-            mint_odders = json.loads(r.hget(MINT_ODDERS, item['mint'])) if not mint_odders else mint_odders
-            if check_historical_frequency2(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD_TWO,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_TWO,SPREAD_DETECTION_SETTINGS_MAX_COUNT_TWO,mint_odders,logging):
-                return
+        # #推单检测
+        # mint_odders = None
+        # if SPREAD_DETECTION_SETTINGS_ENABLED:
+        #     mint_odders = json.loads(r.hget(MINT_ODDERS,item['mint']))
+        #     if check_historical_frequency(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MIN,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_MAX,SPREAD_DETECTION_SETTINGS_ALLOWED_OCCURRENCES,SPREAD_DETECTION_SETTINGS_MAX_COUNT,mint_odders,logging):
+        #         return
+        # if SPREAD_DETECTION_SETTINGS_ENABLED_TWO:
+        #     mint_odders = json.loads(r.hget(MINT_ODDERS, item['mint'])) if not mint_odders else mint_odders
+        #     if check_historical_frequency2(item['mint'],item['signature'],SPREAD_DETECTION_SETTINGS_SPREAD_TWO,SPREAD_DETECTION_SETTINGS_AMOUNT_RANGE_TWO,SPREAD_DETECTION_SETTINGS_MAX_COUNT_TWO,mint_odders,logging):
+        #         return
 
 
         now = datetime.now() #当前时间
