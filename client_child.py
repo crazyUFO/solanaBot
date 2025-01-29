@@ -267,6 +267,7 @@ async def fetch_config(server_id = SERVER_ID):
         #设置单子的最小排除单笔购买
         config['min_purchase_amount'] = min(config['type1_settings_purchase_amount'],config['type2_settings_purchase_amount'],config['type3_settings_purchase_amount'],config['type4_settings_purchase_amount'])
         config = flatten_dict(config)
+        
         #把confg中的所有key初始化到全局变量
         globals().update(config)
         headers = {
@@ -538,6 +539,7 @@ def transactions_message_no_list(item):
         先排除redis中存在的
         为三种播报拿到交易记录，拿到交易记录之后，再线程分发到三种播报
     '''
+    
     r = redis_client()
     check = r.set(f"{ADDRESS_EXPIRY}{item['traderPublicKey']}","周期排除",nx=True,ex=int(REDIS_EX_TIME * 86400))
     if check:
@@ -556,7 +558,6 @@ def transactions_message_no_list(item):
         now = datetime.now() #当前时间
         start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
         transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
-        print(transactions_data)
         if not transactions_data:
             logging.error(f"用户 {item['traderPublicKey']} 没有交易记录")
             return 
@@ -572,7 +573,7 @@ def transactions_message_no_list(item):
         if dev_data:##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号
             return
         #检查感叹号数据
-        if alert_data and alert_data > BLACKLIST_RATIO:
+        if alert_data is None or alert_data > BLACKLIST_RATIO:
             return
         #检查钱包数据
         if future_wallet_data:
@@ -823,7 +824,7 @@ def fetch_wallet_info(item):
     pnl_7d = data.get('pnl_7d',0)
     buy_7d = data.get('buy_7d',0)
     if  WIN_RATE and winrate is not None  and winrate >= WIN_RATE:
-        logging.info(f"用户 {address} 7天内结算盈利额度 {data['realized_profit_7d']}")
+        logging.info(f"用户 {address} 总胜率 {data['winrate']}")
         return False
     if PROFIT_7D and realized_profit_7d is not None and  realized_profit_7d  >= PROFIT_7D:
         logging.info(f"用户 {address} 7天内结算盈利额度 {data['realized_profit_7d']}")
@@ -965,14 +966,14 @@ def send_to_trader(item,type):
     if REMOVE_DUPLICATES_BY_NAME:
         if not symbol_unique(symbol,mint):
             item['failureReason'] = f"symbol {symbol} 同名重复"
-            logging.error(f"symbol {symbol} 同名重复")
+            logging.error(f"代币 {mint} symbol {symbol} 同名重复")
             return False
     
     #把中文的去掉
     if REMOVE_CHINESE_BY_NAME:
         if is_chinese(symbol):
             item['failureReason'] = f"symbol {symbol} 是中文"
-            logging.error(f"symbol {symbol} 是中文,交易端排除")
+            logging.error(f"代币 {mint} symbol {symbol} 是中文,交易端排除")
             return False
     
     #看看redis是否已经发送到交易端了
@@ -1047,48 +1048,37 @@ def fetch_token_pool(mint):
     return {}
 #请求用户的代币列表并对感叹号的数量进行计数
 def fetch_user_wallet_holdings_show_alert(item):
-    address = item['traderPublicKey']
-    mint = item['mint']
-    data = redis_client().get(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}")
-    if data:
+    address, mint = item['traderPublicKey'], item['mint']
+    # 从 Redis 缓存中获取数据
+    if data := redis_client().get(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}"):
         logging.info(f"用户 {address} 取出用户最近活跃 {data} 警告数据百分比")
         return float(data)
-    else:
-        proxies = {
-            "https":proxy_expired.get("proxy")
-        }
-        res = gmgn_api.getWalletHoldings(walletAddress=address,params="limit=50&orderby=last_active_timestamp&direction=desc&showsmall=true&sellout=true&tx30d=true",proxies=proxies)
-        if res.status_code == 200:
-            data = res.json()['data']
-            holdings = data.get('holdings')
-            holdings_data = []
-            for value in holdings:#去除当前这一笔买入
-                if value['token']['address'] != mint:
-                    holdings_data.append(value)
+    # 设置代理并请求用户持仓数据
+    proxies = {"https": proxy_expired.get("proxy")}
+    res = gmgn_api.getWalletHoldings(walletAddress=address, params="limit=50&orderby=last_active_timestamp&direction=desc&showsmall=true&sellout=true&tx30d=true",proxies=proxies)
+    # 如果请求失败，记录错误日志并返回 None
+    if res.status_code != 200:
+        logging.error(f"用户 {address} 获取用户最近活跃失败 {res.text}")
+        return None
+    # 过滤掉当前购买的代币
+    holdings_data = [h for h in res.json().get('data', {}).get('holdings', []) if h['token']['address'] != mint]
+    total_count = len(holdings_data)
+    # 如果没有持仓数据，记录错误日志并返回 None
+    if total_count == 0:
+        logging.error(f"用户 {address} 用户最近活跃 警告数据百分比 是空 不能缓存")
+        return None
+    # 计算 `is_show_alert` 为 True 的比例
+    proportion = sum(1 for h in holdings_data if h.get("token", {}).get("is_show_alert")) / total_count
 
-            # 统计 is_show_alert 为 True 的数量
-            is_show_alert_true_count = sum(1 for item in holdings_data if item.get("token", {}).get("is_show_alert"))
-            total_count = len(holdings_data) 
-            # 检查是否为空列表，避免除以零
-            if total_count <= 0:
-                proportion = None  # 如果没有数据，比例设为 0
-            else:
-                proportion = is_show_alert_true_count / total_count
-            if proportion:
-                logging.info(f"用户 {address} 用户最近活跃 警告数据百分比 {proportion} 已缓存")
-                redis_client().set(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}",proportion,ex=int(86400 * REDIS_EX_TIME))
-                if proportion > BLACKLIST_RATIO:
-                    logging.error(f"用户 {address} 感叹号数据 {proportion} 大于{BLACKLIST_RATIO}")
-                    return None
-                else:
-                    logging.info(f"用户 {address} 感叹号数据 {proportion} 合格")
-                    return proportion
-            else:
-                logging.error(f"用户 {address} 用户最近活跃 警告数据百分比 是空 不能缓存")                
-            return None
-        else:
-            logging.error(f"用户 {address} 获取用户最近活跃失败 {res.text}")
-    return None
+    # 将计算结果缓存到 Redis
+    logging.info(f"用户 {address} 用户最近活跃 警告数据百分比 {proportion} 已缓存")
+    redis_client().set(f"{ADDRESS_HOLDINGS_ALERT_DATA}{address}", proportion, ex=int(86400 * REDIS_EX_TIME))
+    # 判断是否超出黑名单阈值
+    if proportion > BLACKLIST_RATIO:
+        logging.error(f"用户 {address} 感叹号数据 {proportion} 大于 {BLACKLIST_RATIO}")
+        return None
+    logging.info(f"用户 {address} 感叹号数据 {proportion} 合格")
+    return proportion
 #请求用户转账记录
 def fetch_user_transfer(start_time,end_time,address):
     url = f"https://pro-api.solscan.io/v2.0/account/transfer?address={address}&token=So11111111111111111111111111111111111111111&block_time[]={start_time}&block_time[]={end_time}&exclude_amount_zero=true&flow=in&page=1&page_size=10&sort_by=block_time&sort_order=desc"   
