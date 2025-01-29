@@ -1130,6 +1130,7 @@ def redis_client():
     return redis.Redis(connection_pool=redis_pool)
 #更新最高市值
 async def update_maket_cap_height_value():
+    return
     cursor = 0
     keys = []
     r = redis_client()
@@ -1175,7 +1176,7 @@ async def update_maket_cap_height_value():
         await asyncio.sleep(2)
 #请求保存播报记录到数据库中
 def save_transaction(item):
-    server_fun_api.saveTransaction(item)
+    #server_fun_api.saveTransaction(item)
     redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(item['subscriptions']),ex=7200)
 #请求市场数据
 async def fetch_maket_data(mint):
