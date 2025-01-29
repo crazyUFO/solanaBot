@@ -804,7 +804,6 @@ def fetch_wallet_info(item):
     - True: 钱包未通过审核（不符合要求或出现错误）。
     """
     address = item['traderPublicKey']
-    logging.info(f"配置为 总胜率 {WIN_RATE} 7天内结算盈利额度 {PROFIT_7D} 7天内盈利率 {WIN_RATE_7D} 7天内购买次数 {BUY_FREQUENCY}")
 
     if data:=redis_client().get(f"{WALLET_INFOS}{address}"):
         logging.info(f"用户 {address} 取出钱包详情缓存")
@@ -834,19 +833,19 @@ def fetch_wallet_info(item):
     pnl_7d = data.get('pnl_7d', 0)
     buy_7d = data.get('buy_7d', 0)
     if WIN_RATE and winrate is not None and winrate < WIN_RATE:
-        logging.info(f"用户 {address} 总胜率 {winrate}")
+        logging.error(f"用户 {address} 总胜率 {winrate} 设置 {WIN_RATE}")
         return True  
 
     if PROFIT_7D and realized_profit_7d is not None and realized_profit_7d < PROFIT_7D:
-        logging.info(f"用户 {address} 7天内结算盈利额度 {realized_profit_7d}")
+        logging.error(f"用户 {address} 7天内结算盈利额度 {realized_profit_7d} 设置 {PROFIT_7D}")
         return True  
 
     if WIN_RATE_7D and pnl_7d is not None and pnl_7d < WIN_RATE_7D:
-        logging.info(f"用户 {address} 7天内盈利率 {pnl_7d}")
+        logging.error(f"用户 {address} 7天内盈利率 {pnl_7d} 设置 {WIN_RATE_7D}")
         return True  
 
     if BUY_FREQUENCY and buy_7d is not None and buy_7d > BUY_FREQUENCY:
-        logging.info(f"用户 {address} 7天内购买次数 {buy_7d}")
+        logging.error(f"用户 {address} 7天内购买次数 {buy_7d} 设置 {BUY_FREQUENCY}")
         return True  
     
     logging.info(f"用户 {address} 钱包符合要求")
