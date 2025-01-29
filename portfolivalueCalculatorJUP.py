@@ -51,7 +51,7 @@ class PortfolioValueCalculatorJUP:
                 response.raise_for_status()  # 如果返回的状态码不是 200，会抛出异常
                 data = response.json()
                 token_prices = data.get("data", {})
-                return {mint: float(price.get('price')) for mint, price in token_prices.items() if price is not None}
+                return {mint: float(price.get('price',0)) for mint, price in token_prices.items() if price}
             except requests.exceptions.RequestException as e:
                 print(f"第 {attempt + 1} 次请求失败，代币 {chunk}，错误: {e}")
                 if attempt < retries - 1:
