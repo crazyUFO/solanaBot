@@ -1246,7 +1246,7 @@ def symbol_unique(symbol,mint):
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
-    redis_task = asyncio.create_task(redis_get_settings())
+    #redis_task = asyncio.create_task(redis_get_settings())
     # 启动 WebSocket 连接处理
     ws_task = asyncio.create_task(websocket_handler())
 
@@ -1269,7 +1269,7 @@ async def main():
     # 读取配置
     await fetch_config()
     # 等待任务完成
-    await asyncio.gather(subscribed_new_task,ws_task,fair_consumption_task,check_inactive_clients_task,market_cap_sol_height_task,cleanup_task,redis_task)
+    await asyncio.gather(subscribed_new_task,ws_task,fair_consumption_task,check_inactive_clients_task,market_cap_sol_height_task,cleanup_task)
     
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':
