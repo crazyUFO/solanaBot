@@ -795,48 +795,62 @@ def send_telegram_notification(message,bot,tag,item):
             logging.error(f"{tag} 通知发送失败: {response.json()}")
     except Exception as e:
         logging.error(f"{tag} 发送通知时出错: {e}")
-#请求用户的总营收
+#获取并评估钱包信息。
 def fetch_wallet_info(item):
+    """
+    获取并评估钱包信息。
+    返回值：
+    - False: 钱包通过审核（符合要求）。
+    - True: 钱包未通过审核（不符合要求或出现错误）。
+    """
     address = item['traderPublicKey']
-    data = redis_client().get(f"{WALLET_INFOS}{address}")
-    if data:
+    logging.info(f"配置为 总胜率 {WIN_RATE} 7天内结算盈利额度 {PROFIT_7D} 7天内盈利率 {WIN_RATE_7D} 7天内购买次数 {BUY_FREQUENCY}")
+
+    if data:=redis_client().get(f"{WALLET_INFOS}{address}"):
         logging.info(f"用户 {address} 取出钱包详情缓存")
-        data =  json.loads(data)
+        data = json.loads(data)
     else:
-        proxies = {
-            "https":proxy_expired.get("proxy")
-        }
-        res = gmgn_api.getWalletInfo(walletAddress=address,period="7d",proxies=proxies)
-        if res.status_code == 200:
-            data = res.json().get('data', {})
-            if data:
-                logging.info(f"用户 {address} 钱包详情已缓存")
-                redis_client().set(f"{WALLET_INFOS}{address}",json.dumps(data),ex=86400)
-            else:
-                logging.error(f"用户 {address} 钱包详情为空不能缓存")
-                return True
-        else:
-            logging.error(f"用户 {address} 获取钱包详情 {res.text}")
-            return True
-    #判断总胜率
-    winrate = data.get('winrate',0)
-    realized_profit_7d = data.get('realized_profit_7d',0)
-    pnl_7d = data.get('pnl_7d',0)
-    buy_7d = data.get('buy_7d',0)
-    if  WIN_RATE and winrate is not None  and winrate >= WIN_RATE:
-        logging.info(f"用户 {address} 总胜率 {data['winrate']}")
+        proxies = {"https": proxy_expired.get("proxy")}
+        res = gmgn_api.getWalletInfo(walletAddress=address, period="7d", proxies=proxies)
+        
+        if res.status_code != 200:
+            logging.error(f"用户 {address} 获取钱包详情失败: {res.text}")
+            return True  # 钱包未通过审核（API 调用失败）
+        
+        api_data = res.json().get('data', {})
+        if not api_data:
+            logging.error(f"用户 {address} 钱包详情为空")
+            return True  # 钱包未通过审核（数据为空）
+        
+        logging.info(f"用户 {address} 钱包详情已缓存")
+        redis_client().set(f"{WALLET_INFOS}{address}", json.dumps(api_data), ex=86400)
+        data = api_data
+    if not WIN_RATE and not PROFIT_7D and not WIN_RATE_7D and not BUY_FREQUENCY:
+        logging.info(f"钱包限制未配置")
         return False
-    if PROFIT_7D and realized_profit_7d is not None and  realized_profit_7d  >= PROFIT_7D:
-        logging.info(f"用户 {address} 7天内结算盈利额度 {data['realized_profit_7d']}")
-        return False
-    if WIN_RATE_7D and pnl_7d is not None and  pnl_7d >= WIN_RATE_7D:
-        logging.info(f"用户 {address} 7天内盈利率 {data['buy_7d']}")
-        return False
-    if BUY_FREQUENCY and buy_7d is not None and  buy_7d < BUY_FREQUENCY:
-        logging.info(f"用户 {address} 7天内购买 {data['buy_7d']}")
-        return False
+    # 评估钱包指标
+    winrate = data.get('winrate', 0)
+    realized_profit_7d = data.get('realized_profit_7d', 0)
+    pnl_7d = data.get('pnl_7d', 0)
+    buy_7d = data.get('buy_7d', 0)
+    if WIN_RATE and winrate is not None and winrate < WIN_RATE:
+        logging.info(f"用户 {address} 总胜率 {winrate}")
+        return True  
+
+    if PROFIT_7D and realized_profit_7d is not None and realized_profit_7d < PROFIT_7D:
+        logging.info(f"用户 {address} 7天内结算盈利额度 {realized_profit_7d}")
+        return True  
+
+    if WIN_RATE_7D and pnl_7d is not None and pnl_7d < WIN_RATE_7D:
+        logging.info(f"用户 {address} 7天内盈利率 {pnl_7d}")
+        return True  
+
+    if BUY_FREQUENCY and buy_7d is not None and buy_7d > BUY_FREQUENCY:
+        logging.info(f"用户 {address} 7天内购买次数 {buy_7d}")
+        return True  
+    
     logging.info(f"用户 {address} 钱包符合要求")
-    return False
+    return False  # 钱包未通过审核（未满足任何条件）
 #请求用户的代币盈亏情况 之请求一条，按降序排列，这一条就是金额最大的
 def fetch_user_wallet_holdings(address):
     data = redis_client().get(f"{ADDRESS_HOLDINGS_DATA}{address}")
@@ -1141,7 +1155,7 @@ async def update_maket_cap_height_value():
         if not data['market_cap_sol_height_need_update'] or not mint:
             logging.info(f"代币 {mint} 不需要更新最高市值")
             continue
-        maket_data = fetch_maket_data(mint=mint)
+        maket_data = await fetch_maket_data(mint=mint)
         if not maket_data:
             continue
         try:
@@ -1150,7 +1164,7 @@ async def update_maket_cap_height_value():
                 "tokenMarketValueHeight":maket_data['high'],
                 "timeToHighMarketValue":maket_data['time_diff']
             }
-            response = server_fun_api.updateMaketValueHeightByCa(params)
+            response = await server_fun_api.updateMaketValueHeightByCa(params)
             response.raise_for_status()
             logging.info(f"代币 {mint} 更新最高市值 => {maket_data['high']}")
             data['market_cap_sol_height_need_update'] = False
@@ -1165,7 +1179,7 @@ def save_transaction(item):
     server_fun_api.saveTransaction(item)
     redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(item['subscriptions']),ex=7200)
 #请求市场数据
-def fetch_maket_data(mint):
+async def fetch_maket_data(mint):
     proxies = {
         "https":proxy_expired.get("proxy")
     }

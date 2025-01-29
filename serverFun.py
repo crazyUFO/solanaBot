@@ -62,7 +62,7 @@ class ServerFun:
         response = requests.get(url)
         return response
 
-    def updateMaketValueHeightByCa(self,params: dict)->dict:
+    async def updateMaketValueHeightByCa(self,params: dict)->dict:
         if not params:
             return "params 参数无效"
         url = f"{self.domain}/api/wallet-transactions/updateTokenMarketValueHeight"
