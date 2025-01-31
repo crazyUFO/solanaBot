@@ -474,23 +474,23 @@ def check_user_transactions(item):
     start_time = int((now - timedelta(days=365)).timestamp())#获取近365天的20条记录
     transactions_data =  fetch_user_transactions(start_time,now.timestamp(),item)#获取近365天内的20条交易记录
 
-    #检查dev数据
-    if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号
-        return
-    logging.info(f"代币 {item['mint']} dev检测合格")
+    # #检查dev数据
+    # if fetch_mint_dev(item):##符合条件就是 诈骗盘 条件：老鲸鱼是dev团队中人 dev和dev小号
+    #     return
+    # logging.info(f"代币 {item['mint']} dev检测合格")
 
     #检查感叹号数据
-    alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'],item['mint'])
-    if alert_data is None:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
-        return
-    if alert_data > ALTER_PROPORTION:
-        logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
-        return
-    logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
+    # alert_data = fetch_user_wallet_holdings_show_alert(item['traderPublicKey'],item['mint'])
+    # if alert_data is None:
+    #     logging.info(f"用户 {item['traderPublicKey']} 感叹号数据为None")
+    #     return
+    # if alert_data > ALTER_PROPORTION:
+    #     logging.info(f"用户 {item['traderPublicKey']} 感叹号数据大于50%")
+    #     return
+    # logging.info(f"用户 {item['traderPublicKey']} 感叹号数据检测合格 {alert_data}")
     
     #4种type都需要用到的数据
-    item['alert_data'] = alert_data
+    #item['alert_data'] = alert_data
     item['symbol'] = item['subscriptions']['symbol']
     item['market_cap'] = item['marketCapSol'] * sol_price['price'] #市值
     item['isSentToExchange'] = 0 #是否已经发送到交易端
@@ -702,28 +702,34 @@ def check_user_wallet(item,title):
         if item['market_cap'] < MIN_TOKEN_CAP:#老鲸鱼暴击的条件 小于设定的市值时 
             logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {MIN_TOKEN_CAP} 不满足")
             return
+        # tokens 余额检测
+        data = fetch_user_account_sol(item['traderPublicKey'])
+        sol = data.get('sol')
+        logging.info(f"用户 {item['traderPublicKey']} sol:{sol}")
+        if sol < BLANCE:
+            return
         # 单币盈利检测 大于设定值 ，并且盈利率要大于300%
-        data = fetch_user_wallet_holdings(item['traderPublicKey'])
-        if not data:
-            logging.info(f"用户 {item['traderPublicKey']} 代币盈亏数据是空")
-            return
-        hold_data = data
-        if float(hold_data['realized_profit']) < TOTAL_PROFIT or float(hold_data['realized_pnl']) < 3:
-            logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TOTAL_PROFIT} 盈利率为{(float(hold_data['realized_pnl']) * 100):.2f}")
-            return
+        #data = fetch_user_wallet_holdings(item['traderPublicKey'])
+        # if not data:
+        #     logging.info(f"用户 {item['traderPublicKey']} 代币盈亏数据是空")
+        #     return
+        # hold_data = data
+        # if float(hold_data['realized_profit']) < TOTAL_PROFIT or float(hold_data['realized_pnl']) < 3:
+        #     logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TOTAL_PROFIT} 盈利率为{(float(hold_data['realized_pnl']) * 100):.2f}")
+        #     return
         #检测 并发送到交易端
         if send_to_trader(item=item,type=2):
             item['isSentToExchange'] = 1 #是否已经发送到交易端
         #检测重复并播报到TG群
         if save_success_to_redis(mint=item['mint'],type=2,address=item['traderPublicKey']):
-            hold_data["traderPublicKey"] = item['traderPublicKey']
-            hold_data["title"] = title
-            hold_data['mint'] = item['mint']
-            hold_data['solAmount'] = item['solAmount']
-            hold_data['signature'] = item['signature']
-            hold_data['market_cap'] = item['market_cap']#市值
-            hold_data['alert_data'] = item['alert_data']#黑盘占比
-            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}",item)
+            #hold_data["traderPublicKey"] = item['traderPublicKey']
+            item["title"] = title
+            # hold_data['mint'] = item['mint']
+            # hold_data['solAmount'] = item['solAmount']
+            # hold_data['signature'] = item['signature']
+            # hold_data['market_cap'] = item['market_cap']#市值
+            #hold_data['alert_data'] = item['alert_data']#黑盘占比
+            send_telegram_notification(tg_message_html_3(item),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {title}",item)
              
         #保存播报记录
         item['type'] = 2 
@@ -1112,7 +1118,7 @@ def symbol_unique(symbol):
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
-    redis_task = asyncio.create_task(redis_get_settings())
+    #redis_task = asyncio.create_task(redis_get_settings())
     # 启动 WebSocket 连接处理
     ws_task = asyncio.create_task(websocket_handler())
 
@@ -1120,7 +1126,7 @@ async def main():
     subscribed_new_task = asyncio.create_task(subscribed_new_mq())
 
     # 启动处理最高市值更新
-    market_cap_sol_height_task = asyncio.create_task(market_cap_sol_height_update())
+    #market_cap_sol_height_task = asyncio.create_task(market_cap_sol_height_update())
 
     #启动公平消费任务
     fair_consumption_task = asyncio.create_task(fair_consumption())
@@ -1135,7 +1141,7 @@ async def main():
     # 读取配置
     await fetch_config()
     # 等待任务完成
-    await asyncio.gather(subscribed_new_task,ws_task,fair_consumption_task,check_inactive_clients_task,market_cap_sol_height_task,cleanup_task,redis_task)
+    await asyncio.gather(subscribed_new_task,ws_task,fair_consumption_task,check_inactive_clients_task,cleanup_task)
     
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':
