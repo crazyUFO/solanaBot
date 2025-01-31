@@ -1135,7 +1135,6 @@ def redis_client():
     return redis.Redis(connection_pool=redis_pool)
 #更新最高市值
 async def update_maket_cap_height_value():
-    return
     cursor = 0
     keys = []
     r = redis_client()
@@ -1181,7 +1180,7 @@ async def update_maket_cap_height_value():
         await asyncio.sleep(2)
 #请求保存播报记录到数据库中
 def save_transaction(item):
-    #server_fun_api.saveTransaction(item)
+    server_fun_api.saveTransaction(item)
     redis_client().set(f"{MINT_NEED_UPDATE_MAKET_CAP}{item['mint']}",json.dumps(item['subscriptions']),ex=7200)
 #请求市场数据
 async def fetch_maket_data(mint):
@@ -1251,7 +1250,7 @@ def symbol_unique(symbol,mint):
 # 主程序
 async def main():
     # 启动 WebSocket 连接处理
-    #redis_task = asyncio.create_task(redis_get_settings())
+    redis_task = asyncio.create_task(redis_get_settings())
     # 启动 WebSocket 连接处理
     ws_task = asyncio.create_task(websocket_handler())
 
@@ -1274,7 +1273,7 @@ async def main():
     # 读取配置
     await fetch_config()
     # 等待任务完成
-    await asyncio.gather(subscribed_new_task,ws_task,fair_consumption_task,check_inactive_clients_task,market_cap_sol_height_task,cleanup_task)
+    await asyncio.gather(subscribed_new_task,ws_task,fair_consumption_task,check_inactive_clients_task,market_cap_sol_height_task,redis_task,cleanup_task)
     
 # 启动 WebSocket 处理程序
 if __name__ == '__main__':
