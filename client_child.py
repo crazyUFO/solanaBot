@@ -469,7 +469,7 @@ async def fair_consumption():
                 product_data = r.lpop(f"{CLIENT}{TXHASH_MQ_LIST}")
                 if product_data:
                     message = json.loads(product_data)
-                    logging.info(f"用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']}")
+                    logging.info(f"代币 {message['mint']} 用户 {message['traderPublicKey']} {message['signature']}  交易金额:{message['solAmount']}")
                     executor.submit(transactions_message_no_list,message)
                     task_count += 1  # 增加任务计数
                     
@@ -598,7 +598,7 @@ def transactions_message_no_list(item):
             if not calculate_time_diff(item,4,transactions_data,TYPE4_SETTINGS_DAY_INTERVAL):
                 executor.submit(type4, item)
     else:
-        logging.info(f"用户 {item['traderPublicKey']} 已被redis排除")
+        logging.error(f"用户 {item['traderPublicKey']} 已被redis排除")
 #新版更新老鲸鱼转账钱包
 def type4(item):
     '''
@@ -618,40 +618,41 @@ def type4(item):
             father_address = value['from_address']
             break
     if not father_address:
+        logging.error(f"代币 {item['mint']} 没有发现上级钱包 type4")
         return
-    logging.info(f"用户 {item['traderPublicKey']} 的上级转账老钱包为 {father_address}")
     data = fetch_user_tokens(father_address)
     tokens = data.get('tokens')
     total_balance = data.get('total_balance')
     sol = data.get('sol')
-    logging.info(f"老钱包 {father_address} 的数值 tokens 数量 {len(tokens)} sol {sol} total_balance {total_balance}")
-    if len(tokens)>=TYPE4_SETTINGS_TOKEN_QUANTITY and total_balance >=TYPE4_SETTINGS_TOKEN_BALANCE:
+    if len(tokens) < TYPE4_SETTINGS_TOKEN_QUANTITY or total_balance < TYPE4_SETTINGS_TOKEN_BALANCE:
+        logging.error(f"代币 {item['mint']} 老钱包 {father_address} 的数值 => 代币数量 {len(tokens)} 设定值 {TYPE4_SETTINGS_TOKEN_QUANTITY}  代币余额 {total_balance} 设定值 {TYPE4_SETTINGS_TOKEN_BALANCE} 不满足 type4")
+        return 
 
-        #检测 并发送到交易端
-        if send_to_trader(item=item,type=4):
-            item['isSentToExchange'] = 1 #是否已经发送到交易端
+    #检测 并发送到交易端
+    if send_to_trader(item=item,type=4):
+        item['isSentToExchange'] = 1 #是否已经发送到交易端
 
-        #计数播报次数
-        # 使用 Redis 的 incr 命令增加计数
-        key = f"{MINT_ZHUANZHANG_ADDRESS}{item['mint']}:trade_count"
-        redis_client().incr(key)
-        trade_count = int(redis_client().get(key))
+    #计数播报次数
+    # 使用 Redis 的 incr 命令增加计数
+    key = f"{MINT_ZHUANZHANG_ADDRESS}{item['mint']}:trade_count"
+    redis_client().incr(key)
+    trade_count = int(redis_client().get(key))
 
-        item['total_balance'] = total_balance
-        item['sol'] = sol
-        item['traderPublicKeyParent'] = father_address
-        item['title'] = f"第{trade_count}通知转账CA:{item['symbol']}"
-        send_telegram_notification(tg_message_html_5(item),[TELEGRAM_BOT_TOKEN_ZHUANZHANG,TELEGRAM_CHAT_ID_ZHUANZHANG],f"用户 {item['traderPublicKey']} 转账老钱包",item)
+    item['total_balance'] = total_balance
+    item['sol'] = sol
+    item['traderPublicKeyParent'] = father_address
+    item['title'] = f"第{trade_count}通知转账CA:{item['symbol']}"
+    send_telegram_notification(tg_message_html_5(item),[TELEGRAM_BOT_TOKEN_ZHUANZHANG,TELEGRAM_CHAT_ID_ZHUANZHANG],f"用户 {item['traderPublicKey']} 转账老钱包",item)
 
-        #保存播报记录
-        item['type'] = 4
-        save_transaction(item)
+    #保存播报记录
+    item['type'] = 4
+    save_transaction(item)
 #老鲸鱼15天钱包
 def type3(item):
     '''
         2025.1.2 日增加新播报需求，老钱包买单 内盘出现两个个15天以上没操作过买币卖币行为的钱包 播报出来播报符合条件的俩个钱包地址 加上ca后续有符合钱包持续播报 单笔0.3以上
     '''
-    logging.info(f"代币 {item['mint']} 发现了{TYPE3_SETTINGS_DAY_INTERVAL}天钱包 {item['traderPublicKey']}")
+    logging.info(f"代币 {item['mint']} 发现了{TYPE3_SETTINGS_DAY_INTERVAL}天钱包 {item['traderPublicKey']} type3")
     mint = item['mint']
     
     # 使用 Redis 记录每个 mint 地址符合条件的钱包地址
@@ -692,17 +693,19 @@ def type3(item):
         save_transaction(item)
 # 老鲸鱼钱包
 def type1(item):
+    traderPublicKey = item['traderPublicKey']
+    mint = item['mint']
     try:
         #市值检测
         if item['market_cap'] < TYPE1_SETTINGS_MARKET_CAP_LIMIT:#老鲸鱼暴击的条件 小于设定的市值时 
-            logging.error(f"代币 {item['mint']} 的市值 {item['market_cap']} 设定 {TYPE1_SETTINGS_MARKET_CAP_LIMIT} 不满足")
+            logging.error(f"代币 {mint} 的市值 {item['market_cap']} 设定 {TYPE1_SETTINGS_MARKET_CAP_LIMIT} 不满足 type1")
             return
         # tokens 余额检测
-        data = fetch_user_tokens(item['traderPublicKey'])
+        data = fetch_user_tokens(traderPublicKey)
         total_balance = data.get('total_balance')
         sol = data.get('sol')
-        logging.info(f"用户 {item['traderPublicKey']} tokens:{total_balance} sol:{sol}")
         if total_balance < TYPE1_SETTINGS_TOKEN_BALANCE:
+            logging.error(f"代币 {mint} 用户 {traderPublicKey} 的代币余额 {total_balance} 设定 {TYPE1_SETTINGS_TOKEN_BALANCE} 不满足 type1")
             return
         
         #检测 并发送到交易端
@@ -710,46 +713,48 @@ def type1(item):
             item['isSentToExchange'] = 1 #是否已经发送到交易端
         
         #检测重复并播报到TG群
-        if save_success_to_redis(mint=item['mint'],type=1,address=item['traderPublicKey']):            
+        if save_success_to_redis(mint=mint,type=1,address=traderPublicKey):            
             item['title'] = f"老鲸鱼CA:{item['symbol']}"
             item['sol'] = sol
             item['total_balance'] = total_balance
-            send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {item['traderPublicKey']} {item['title']}",item)
+            send_telegram_notification(tg_message_html_1(item),[TELEGRAM_BOT_TOKEN,TELEGRAM_CHAT_ID],f"用户 {traderPublicKey} {item['title']}",item)
 
         #保存播报记录
         item['type'] = 1 
         save_transaction(item)
     except Exception as e:
-            logging.error(f"获取 {item['traderPublicKey']} 的余额出错 {e}")
+            logging.error(f"获取 {traderPublicKey} 的余额出错 {e}")
 # 老金鱼暴击
 def type2(item):
+    traderPublicKey = item['traderPublicKey']
+    mint = item['mint']
     try:
         #市值检测
         if item['market_cap'] < TYPE2_SETTINGS_MARKET_CAP_LIMIT:#老鲸鱼暴击的条件 小于设定的市值时 
-            logging.error(f"代币 {item['mint']} 的市值 {item['marketCapSol']} 设定 {TYPE2_SETTINGS_MARKET_CAP_LIMIT} 不满足")
+            logging.error(f"代币 {mint} 的市值 {item['marketCapSol']} 设定 {TYPE2_SETTINGS_MARKET_CAP_LIMIT} 不满足 type2")
             return
         # 单币盈利检测 大于设定值 ，并且盈利率要大于300%
-        data = fetch_user_wallet_holdings(item['traderPublicKey'])
+        data = fetch_user_wallet_holdings(traderPublicKey)
         if not data:
-            logging.info(f"用户 {item['traderPublicKey']} 代币盈亏数据是空")
+            logging.error(f"代币 {mint} 用户 {traderPublicKey} 代币盈亏数据是空")
             return
         hold_data = data
         if float(hold_data['realized_profit']) < TYPE2_SETTINGS_PROFIT_PER_TOKEN or float(hold_data['realized_pnl']) < TYPE2_SETTINGS_PROFIT_RATE_PER_TOKEN:
-            logging.info(f"用户{item['traderPublicKey']} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TYPE2_SETTINGS_PROFIT_PER_TOKEN} 盈利率为{(float(hold_data['realized_pnl']) * 100):.2f}")
+            logging.error(f"代币 {mint} 用户 {traderPublicKey} 单笔最大盈利(已结算) {hold_data['realized_profit']} usdt 小于设定值 {TYPE2_SETTINGS_PROFIT_PER_TOKEN} 盈利率为{(float(hold_data['realized_pnl']) * 100):.2f}% 小于设定值 {(float(TYPE2_SETTINGS_PROFIT_RATE_PER_TOKEN) * 100):.2f}% type2")
             return
         #检测 并发送到交易端
         if send_to_trader(item=item,type=2):
             item['isSentToExchange'] = 1 #是否已经发送到交易端
         #检测重复并播报到TG群
-        if save_success_to_redis(mint=item['mint'],type=2,address=item['traderPublicKey']):
-            hold_data["traderPublicKey"] = item['traderPublicKey']
+        if save_success_to_redis(mint=mint,type=2,address=traderPublicKey):
+            hold_data["traderPublicKey"] = traderPublicKey
             hold_data["title"] = f"老鲸鱼CA:{item['symbol']}"
-            hold_data['mint'] = item['mint']
+            hold_data['mint'] = mint
             hold_data['solAmount'] = item['solAmount']
             hold_data['signature'] = item['signature']
             hold_data['market_cap'] = item['market_cap']#市值
             hold_data['alert_data'] = item['alert_data']#黑盘占比
-            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {item['traderPublicKey']} {hold_data['title']}",item)
+            send_telegram_notification(tg_message_html_3(hold_data),[TELEGRAM_BOT_TOKEN_BAOJI,TELEGRAM_CHAT_ID_BAOJI],f"用户 {traderPublicKey} {hold_data['title']}",item)
              
         #保存播报记录
         item['type'] = 2 
