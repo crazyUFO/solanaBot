@@ -304,32 +304,32 @@ async def cleanup_subscriptions():
         logging.info(f"更新SOL的价格 {sol_price['price']} usd")
         #获取拉黑的地址
         fetch_black_wallets()
-        # 遍历所有订阅，最后一次交易时间超时 12.31日更新 并且要低于市值设定最小值或者高于市值设定最大值
-        for mint_address, data in subscriptions.items():            
-            market_cap_usdt = data['market_cap_sol'] * sol_price['price']
-            if current_time - data['last_trade_time'] >= SUBSCRIPTION_CYCLE and (market_cap_usdt < MIN_MARKET_CAP or market_cap_usdt >= MAX_MARKET_CAP):
-                logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {SUBSCRIPTION_CYCLE / 60} 分钟")
-                expired_addresses.append(mint_address)
-        # 移除过期的订阅
-        for mint_address in expired_addresses:
-            try:
-                del subscriptions[mint_address]
-            except Exception as e:
-                logging.error(f"在移除 mint_address 报错:{e}")
-            #redis里刷新最高市值的也移除一下
-            r.delete(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint_address}")
+        # # 遍历所有订阅，最后一次交易时间超时 12.31日更新 并且要低于市值设定最小值或者高于市值设定最大值
+        # for mint_address, data in subscriptions.items():            
+        #     market_cap_usdt = data['market_cap_sol'] * sol_price['price']
+        #     if current_time - data['last_trade_time'] >= SUBSCRIPTION_CYCLE and (market_cap_usdt < MIN_MARKET_CAP or market_cap_usdt >= MAX_MARKET_CAP):
+        #         logging.info(f"代币 {mint_address} 市值 {market_cap_usdt} 并已经超过超时阈值 {SUBSCRIPTION_CYCLE / 60} 分钟")
+        #         expired_addresses.append(mint_address)
+        # # 移除过期的订阅
+        # for mint_address in expired_addresses:
+        #     try:
+        #         del subscriptions[mint_address]
+        #     except Exception as e:
+        #         logging.error(f"在移除 mint_address 报错:{e}")
+        #     #redis里刷新最高市值的也移除一下
+        #     r.delete(f"{MINT_NEED_UPDATE_MAKET_CAP}{mint_address}")
                    
-        if ws:
-        #将订阅的数组分片，以免数据过大 WS会断开
-            chunks = [expired_addresses[i:i + 20] for i in range(0, len(expired_addresses), 20)]
-            for chunk in chunks:
-                # 
-                payload = {
-                    "method": "unsubscribeTokenTrade",
-                    "keys": chunk  
-                }
-                await ws.send(json.dumps(payload))
-                await asyncio.sleep(5)
+        # if ws:
+        # #将订阅的数组分片，以免数据过大 WS会断开
+        #     chunks = [expired_addresses[i:i + 20] for i in range(0, len(expired_addresses), 20)]
+        #     for chunk in chunks:
+        #         # 
+        #         payload = {
+        #             "method": "unsubscribeTokenTrade",
+        #             "keys": chunk  
+        #         }
+        #         await ws.send(json.dumps(payload))
+        #         await asyncio.sleep(5)
         logging.error(f"----目前 {CLIENT_ID} 进程播报----")
         logging.error(f"----创建监听队列 {subscribed_new_mq_list.qsize()} 条----")
         logging.error(f"----数据处理队列 {market_cap_sol_height_update_mq_list.qsize()} 条----")
