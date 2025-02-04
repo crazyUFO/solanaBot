@@ -24,7 +24,7 @@ def transfer_time_consistency_check(data,time_range,allowed_times):
     # 遍历数据，将其根据 timestamp 分类
     for item in data:
         #去除没转账，和交易所地址
-        if item['native_transfer'] and not item['native_transfer']['name'] and item['native_transfer']['timestamp']:
+        if item['native_transfer'] and item['native_transfer']['timestamp']:
             timestamp = item['native_transfer']['timestamp']
         
             # 如果当前分组为空，或当前元素与当前分组的最后元素时间差小于等于 max_time_diff
@@ -94,6 +94,7 @@ def purchase_consistency_check(data,amount_range,time_range,allowed_times,sol_us
     # 将最后一个分组加入结果
     if current_group:
         grouped_data.append(current_group)
+    print(f"持有者检测-购买一致性检测：{json.dumps(grouped_data, indent=4, ensure_ascii=False)}")
     for item in grouped_data:
         if len(item) > allowed_times:
             return True
