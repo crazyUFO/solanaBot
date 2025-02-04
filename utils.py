@@ -130,6 +130,7 @@ def similarity_check(data,phishing_wallet_enabled,phishing_wallet_count,insider_
     rat_trader = []  # 确定老鼠仓
     dev_team = []  # 开发团队
     seen_wallet_tags = set()  # 用来记录已经添加过的 wallet_tag_v2
+    print(f"data：{json.dumps(data, indent=4, ensure_ascii=False)}")
     for item in data:
         if not item['native_transfer']:
             print(f"item:{item['native_transfer']} address：{item['address']}")
