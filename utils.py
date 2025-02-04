@@ -74,22 +74,23 @@ def purchase_consistency_check(data,amount_range,time_range,allowed_times,sol_us
 
     # 遍历数据，将其根据 timestamp 分类
     for item in data:
-        cost_sol = item['cost'] / sol_usd #计算 转账金额的sol
-        if cost_sol >= amount_range[0] and cost_sol<=amount_range[1]:
-            timestamp = item['start_holding_at']
-            # 如果当前分组为空，或当前元素与当前分组的最后元素时间差小于等于 max_time_diff
-            if not current_group:
-                current_group.append(item)
-            else:
-                last_item = current_group[-1]
-                last_timestamp = last_item['start_holding_at']
-                time_diff = abs(timestamp - last_timestamp)
-                
-                if time_diff <= max_time_diff:
-                    current_group.append(item)  # 加入当前组
+        if item['start_holding_at']:
+            cost_sol = item['cost'] / sol_usd #计算 转账金额的sol
+            if cost_sol >= amount_range[0] and cost_sol<=amount_range[1]:
+                timestamp = item['start_holding_at']
+                # 如果当前分组为空，或当前元素与当前分组的最后元素时间差小于等于 max_time_diff
+                if not current_group:
+                    current_group.append(item)
                 else:
-                    grouped_data.append(current_group)  # 结束当前组，并开始新的一组
-                    current_group = [item]  # 新的分组开始
+                    last_item = current_group[-1]
+                    last_timestamp = last_item['start_holding_at']
+                    time_diff = abs(timestamp - last_timestamp)
+                    
+                    if time_diff <= max_time_diff:
+                        current_group.append(item)  # 加入当前组
+                    else:
+                        grouped_data.append(current_group)  # 结束当前组，并开始新的一组
+                        current_group = [item]  # 新的分组开始
 
     # 将最后一个分组加入结果
     if current_group:
