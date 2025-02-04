@@ -131,11 +131,8 @@ def similarity_check(data,phishing_wallet_enabled,phishing_wallet_count,insider_
     dev_team = []  # 开发团队
     seen_wallet_tags = set()  # 用来记录已经添加过的 wallet_tag_v2
     for item in data:
-        print(f"item:{item['native_transfer']}")
-        if not item['native_transfer']:
-            print(item['address'])
-        from_address = item['native_transfer']['from_address']
-        name = item['native_transfer']['name']
+        from_address = item.get('native_transfer', {}).get('from_address')
+        name = item.get('native_transfer', {}).get('name')
 
         if from_address and not name:#没有来源的不再检测范围,有名字的是交易所地址也不再检测范围内
             grouped_data[from_address].append(item)
