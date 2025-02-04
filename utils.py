@@ -63,7 +63,7 @@ def purchase_consistency_check(data,amount_range,time_range,allowed_times,sol_us
     和1秒内的区别 1秒内也就是不允许有时间差就是0，那么设置2秒内，就是允许1秒时间差
     '''
     # 定义允许的最大时间差（2秒）
-    
+    print(f"data：{json.dumps(data, indent=4, ensure_ascii=False)}")
     max_time_diff = time_range - 1 
 
     # 创建一个字典，根据时间戳分类
