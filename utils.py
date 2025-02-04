@@ -23,25 +23,28 @@ def transfer_time_consistency_check(data,time_range,allowed_times):
 
     # 遍历数据，将其根据 timestamp 分类
     for item in data:
-        timestamp = item['native_transfer']['timestamp']
+        #去除没转账，和交易所地址
+        if item['native_transfer'] and not item['native_transfer']['name'] and item['native_transfer']['timestamp']:
+            timestamp = item['native_transfer']['timestamp']
         
-        # 如果当前分组为空，或当前元素与当前分组的最后元素时间差小于等于 max_time_diff
-        if not current_group:
-            current_group.append(item)
-        else:
-            last_item = current_group[-1]
-            last_timestamp = last_item['native_transfer']['timestamp']
-            time_diff = abs(timestamp - last_timestamp)
-            
-            if time_diff <= max_time_diff:
-                current_group.append(item)  # 加入当前组
+            # 如果当前分组为空，或当前元素与当前分组的最后元素时间差小于等于 max_time_diff
+            if not current_group:
+                current_group.append(item)
             else:
-                grouped_data.append(current_group)  # 结束当前组，并开始新的一组
-                current_group = [item]  # 新的分组开始
+                last_item = current_group[-1]
+                last_timestamp = last_item['native_transfer']['timestamp']
+                time_diff = abs(timestamp - last_timestamp)
+                
+                if time_diff <= max_time_diff:
+                    current_group.append(item)  # 加入当前组
+                else:
+                    grouped_data.append(current_group)  # 结束当前组，并开始新的一组
+                    current_group = [item]  # 新的分组开始
 
     # 将最后一个分组加入结果
     if current_group:
         grouped_data.append(current_group)
+    print(f"持有者检测-转账时间一致性检测：{json.dumps(grouped_data, indent=4, ensure_ascii=False)}")
     for item in grouped_data:
         if len(item) > allowed_times:
             return True
