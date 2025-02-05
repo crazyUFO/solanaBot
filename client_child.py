@@ -304,6 +304,7 @@ async def fetch_config(server_id=SERVER_ID):
     if response.status_code == 200:
         data = response.json()["data"]
         config = json.loads(data.get("settings"))
+        print(json.dumps(config, indent=4, ensure_ascii=False))
         allowed_tran_types = []
         # #允许交易的 和 没有单独设置单笔购买和时间跨度的
         for i in range(1, 5):
@@ -337,8 +338,7 @@ async def fetch_config(server_id=SERVER_ID):
             config["type4_settings_purchase_amount_range"][0],
         )
         config = flatten_dict(config)
-
-        # 把confg中的所有key初始化到全局变量
+        print(json.dumps(config, indent=4, ensure_ascii=False))
         globals().update(config)
         headers = {"token": SOLSCAN_TOKEN}
     else:
@@ -1187,7 +1187,8 @@ def fetch_mint_dev(item):
 
     # 检查dev团队是否跑路，跑路直接放行通过
     unrealized_profits = sum(record["unrealized_profit"] for record in data)
-    if data and round(unrealized_profits, 5) <= 0:
+    realized_profit  = sum(record["realized_profit"] for record in data)
+    if data and round(unrealized_profits, 5) == 0 and realized_profit > 0:
         logging.info(f"代币 {mint} dev已清仓")
         return False
 
