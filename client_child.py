@@ -1661,7 +1661,7 @@ def analyze_transaction_records(transactions_data, item, count):
 # 暂时的对于symbol进行去重处理
 def symbol_unique(symbol, mint):
     r = redis_client()
-    return r.set(f"{SYMBOL_UNIQUE}{symbol}", mint, nx=True, ex=86400)
+    return r.set(f"{SYMBOL_UNIQUE}{symbol.strip()}", mint, nx=True, ex=86400)
 
 
 # 主程序
