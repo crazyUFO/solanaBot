@@ -212,7 +212,12 @@ def similarity_check(
     # print(f"老鼠仓：{json.dumps(rat_trader, indent=4, ensure_ascii=False)}")
     # print(f"dev_team：{json.dumps(dev_team, indent=4, ensure_ascii=False)}")
     # print(f"通源钱包：{json.dumps(grouped_data, indent=4, ensure_ascii=False)}")
-
+    logging.log(f"代币 {mint} 相似度检测")
+    logging.log(f"总数 => {len(sum_data)}")
+    logging.log(f"钓鱼钱包 => {len(transfer_in)}")
+    logging.log(f"老鼠仓 => {len(rat_trader)}")
+    logging.log(f"dev_team => {len(dev_team)}")
+    logging.log(f"同源钱包 => {len(grouped_data)} 组")
     if total_enabled and len(sum_data) > total_count:  # 总开关开启时
         logging.error(f"代币 {mint} 相似度检测 => 总检测 => 总和条数{len(sum_data)} 设定 {total_count}")
         return True
@@ -229,6 +234,7 @@ def similarity_check(
             return True
         if source_wallet_enabled:  # 同一个转账来源
             for from_address, items in grouped_data.items():
+                logging.log(f"同源钱包 => {len(items)} 个")
                 if len(items) > source_wallet_count:
                     logging.error(f"代币 {mint} 相似度检测 => 同源 => 条数{len(items)} 设定 {source_wallet_count}")
                     return True
